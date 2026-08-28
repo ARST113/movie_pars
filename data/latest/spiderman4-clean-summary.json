@@ -1,0 +1,40 @@
+{
+  "rows": 6025,
+  "classes": {
+    "unallocated": 6025
+  },
+  "clean_target": {
+    "revenue": 0.0,
+    "sessions": 0.0,
+    "viewers": 0.0
+  },
+  "mixed_unallocated": {
+    "revenue": 0.0,
+    "sessions": 0.0,
+    "viewers": 0.0
+  },
+  "excluded_other_titles": {
+    "revenue": 0.0,
+    "sessions": 0.0,
+    "viewers": 0.0
+  },
+  "unallocated": {
+    "revenue": 14260974149.0,
+    "sessions": 866982.0,
+    "viewers": 30533136.0
+  },
+  "target": "Человек-паук 4",
+  "source_arrays": [
+    {
+      "name": "daily_schedule",
+      "rows": 996
+    },
+    {
+      "name": "daily_stats",
+      "rows": 5029
+    }
+  ],
+  "cinema_level_rows": 0,
+  "separation_possible": false,
+  "method_note": "Only rows matched by verified cinema + technical-film rules with class=target are counted as clean target. Mixed rows are deliberately not assigned to Spider-Man 4. Cinema name alone is insufficient when the same wrapper is used for multiple western releases."
+}
