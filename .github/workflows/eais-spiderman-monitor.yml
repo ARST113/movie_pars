@@ -2,7 +2,8 @@ name: EAIS Spider-Man 4 monitor
 
 on:
   schedule:
-    - cron: '30 3,9,15,21 * * *'
+    # 08:15, 14:15, 20:15 and 00:15 MSK (UTC+3, no DST)
+    - cron: '15 5,11,17,21 * * *'
   workflow_dispatch:
     inputs:
       films:
@@ -59,6 +60,18 @@ jobs:
         env:
           API_KEY: ${{ secrets.NEWGENRES_API_KEY }}
         run: test -n "$API_KEY"
+
+      - name: Fetch EAIS demonstrator registry
+        env:
+          API_KEY: ${{ secrets.NEWGENRES_API_KEY }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --get "$EAIS_API_BASE/demonstrators" \
+            -H "Authorization: Bearer $API_KEY" \
+            --data-urlencode 'limit=5000' \
+            -o demonstrators.json
+          jq empty demonstrators.json
+          jq '{count:(if type=="array" then length else (.items // .data // .demonstrators // [] | length) end)}' demonstrators.json > demonstrators-summary.json
 
       - name: Check EAIS project support
         env:
@@ -129,6 +142,8 @@ jobs:
           cp films.json out/films.json
           cp request.json out/request.json
           cp support.json out/support.json
+          cp demonstrators.json out/demonstrators.json
+          cp demonstrators-summary.json out/demonstrators-summary.json
           cp job-created.json out/job-created.json
           cp job-status.json out/job-status.json
           cp result.json "out/eais-spiderman4-${STAMP_MSK}-msk.json"
@@ -137,17 +152,20 @@ jobs:
           jq '.data.daily_stats // []' result.json > out/daily_stats.json
           jq '.data.daily_schedule // []' result.json > out/daily_schedule.json
           jq '.data.hourly_schedule // []' result.json > out/hourly_schedule.json
+          jq '.data.real_sessions // .data.native_sessions // .data.showtimes // []' result.json > out/real_sessions.json
           jq '.data.errors // []' result.json > out/errors.json
           jq --arg collected_at_msk "$(TZ=Europe/Moscow date --iso-8601=seconds)" --arg job_id "$JOB_ID" \
-            '{collected_at_msk:$collected_at_msk,job_id:$job_id,request:.request,summary:.summary,counts:{films:((.data.films//[])|length),metadata:((.data.metadata//[])|length),daily_stats:((.data.daily_stats//[])|length),daily_schedule:((.data.daily_schedule//[])|length),hourly_schedule:((.data.hourly_schedule//[])|length),errors:((.data.errors//[])|length)}}' \
+            '{collected_at_msk:$collected_at_msk,job_id:$job_id,request:.request,summary:.summary,counts:{films:((.data.films//[])|length),metadata:((.data.metadata//[])|length),daily_stats:((.data.daily_stats//[])|length),daily_schedule:((.data.daily_schedule//[])|length),hourly_schedule:((.data.hourly_schedule//[])|length),real_sessions:((.data.real_sessions//.data.native_sessions//.data.showtimes//[])|length),errors:((.data.errors//[])|length)}}' \
             result.json > out/summary.json
           mkdir -p "data/history/$DATE_MSK" data/latest
           cp out/summary.json "data/history/$DATE_MSK/${TIME_MSK}-summary.json"
           cp out/spiderman4-clean-summary.json "data/history/$DATE_MSK/${TIME_MSK}-spiderman4-clean-summary.json"
           cp support.json "data/history/$DATE_MSK/${TIME_MSK}-support.json"
+          cp demonstrators-summary.json "data/history/$DATE_MSK/${TIME_MSK}-demonstrators-summary.json"
           cp out/summary.json data/latest/summary.json
           cp out/spiderman4-clean-summary.json data/latest/spiderman4-clean-summary.json
           cp support.json data/latest/support.json
+          cp demonstrators-summary.json data/latest/demonstrators-summary.json
 
       - name: Upload full EAIS snapshot
         uses: actions/upload-artifact@v4
