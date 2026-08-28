@@ -1,8 +1,6 @@
 name: EAIS Spider-Man 4 monitor
 
 on:
-  # GitHub cron is UTC. Moscow is permanently UTC+3.
-  # Runs at 00:30, 06:30, 12:30 and 18:30 MSK.
   schedule:
     - cron: '30 3,9,15,21 * * *'
   workflow_dispatch:
@@ -16,6 +14,8 @@ on:
     paths:
       - '.github/workflows/eais-spiderman-monitor.yml'
       - 'config/spiderman4-films.json'
+      - 'config/spiderman4-classification.json'
+      - 'scripts/classify_spiderman4.py'
 
 permissions:
   contents: write
@@ -31,7 +31,6 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     timeout-minutes: 35
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,125 +44,81 @@ jobs:
           INPUT_FILMS: ${{ github.event.inputs.films }}
         run: |
           set -euo pipefail
-
           if [ -n "${INPUT_FILMS:-}" ]; then
             printf '%s' "$INPUT_FILMS" > films.json
           else
             cp config/spiderman4-films.json films.json
           fi
-
           jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' films.json >/dev/null
           jq -n --slurpfile films films.json '{films:$films[0],output_format:"json",sleep_seconds:0}' > request.json
-
-          DATE_MSK=$(TZ=Europe/Moscow date +%F)
-          TIME_MSK=$(TZ=Europe/Moscow date +%H%M)
-          STAMP_MSK=$(TZ=Europe/Moscow date +%Y%m%d-%H%M%S)
-          printf 'date_msk=%s\n' "$DATE_MSK" >> "$GITHUB_OUTPUT"
-          printf 'time_msk=%s\n' "$TIME_MSK" >> "$GITHUB_OUTPUT"
-          printf 'stamp_msk=%s\n' "$STAMP_MSK" >> "$GITHUB_OUTPUT"
+          echo "date_msk=$(TZ=Europe/Moscow date +%F)" >> "$GITHUB_OUTPUT"
+          echo "time_msk=$(TZ=Europe/Moscow date +%H%M)" >> "$GITHUB_OUTPUT"
+          echo "stamp_msk=$(TZ=Europe/Moscow date +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
 
       - name: Verify API key
-        shell: bash
         env:
           API_KEY: ${{ secrets.NEWGENRES_API_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "${API_KEY:-}" ]; then
-            echo 'Repository secret NEWGENRES_API_KEY is missing.' >&2
-            exit 1
-          fi
+        run: test -n "$API_KEY"
 
       - name: Check EAIS project support
-        shell: bash
         env:
           API_KEY: ${{ secrets.NEWGENRES_API_KEY }}
         run: |
           set -euo pipefail
           FILMS_TEXT=$(jq -r 'join("\n")' films.json)
           jq -n --arg films "$FILMS_TEXT" '{films:$films}' > support-request.json
-
-          curl --fail --silent --show-error \
-            -X POST "$EAIS_API_BASE/support/check" \
-            -H "Authorization: Bearer $API_KEY" \
-            -H 'Content-Type: application/json' \
-            --data-binary @support-request.json \
-            -o support.json
-
+          curl --fail --silent --show-error -X POST "$EAIS_API_BASE/support/check" \
+            -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
+            --data-binary @support-request.json -o support.json
           jq empty support.json
 
       - name: Create EAIS film job
         id: create
-        shell: bash
         env:
           API_KEY: ${{ secrets.NEWGENRES_API_KEY }}
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error \
-            -X POST "$EAIS_API_BASE/films/jobs" \
-            -H "Authorization: Bearer $API_KEY" \
-            -H 'Content-Type: application/json' \
-            --data-binary @request.json \
-            -o job-created.json
-
+          curl --fail --silent --show-error -X POST "$EAIS_API_BASE/films/jobs" \
+            -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
+            --data-binary @request.json -o job-created.json
           JOB_ID=$(jq -r '.id // .job_id // .job.id // .job.job_id // empty' job-created.json)
-          if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "null" ]; then
-            echo 'Could not extract EAIS job id:' >&2
-            cat job-created.json >&2
-            exit 1
-          fi
-          printf 'job_id=%s\n' "$JOB_ID" >> "$GITHUB_OUTPUT"
+          test -n "$JOB_ID"
+          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
 
       - name: Wait for EAIS job
-        shell: bash
         env:
           API_KEY: ${{ secrets.NEWGENRES_API_KEY }}
           JOB_ID: ${{ steps.create.outputs.job_id }}
         run: |
           set -euo pipefail
-
           for i in $(seq 1 150); do
-            curl --fail --silent --show-error \
-              -H "Authorization: Bearer $API_KEY" \
-              "$EAIS_API_BASE/jobs/$JOB_ID" \
-              -o job-status.json
-
+            curl --fail --silent --show-error -H "Authorization: Bearer $API_KEY" \
+              "$EAIS_API_BASE/jobs/$JOB_ID" -o job-status.json
             STATUS=$(jq -r '.status // .state // .job.status // .job.state // empty' job-status.json | tr '[:upper:]' '[:lower:]')
             echo "EAIS job status: ${STATUS:-unknown} ($i/150)"
-
             case "$STATUS" in
-              completed|complete|done|finished|success|succeeded)
-                exit 0
-                ;;
-              failed|error|cancelled|canceled)
-                cat job-status.json >&2
-                exit 1
-                ;;
+              completed|complete|done|finished|success|succeeded) exit 0 ;;
+              failed|error|cancelled|canceled) cat job-status.json; exit 1 ;;
             esac
             sleep 10
           done
-
-          echo 'Timed out waiting for EAIS job.' >&2
-          cat job-status.json >&2
           exit 1
 
       - name: Download EAIS JSON
-        shell: bash
         env:
           API_KEY: ${{ secrets.NEWGENRES_API_KEY }}
           JOB_ID: ${{ steps.create.outputs.job_id }}
         run: |
-          set -euo pipefail
-
-          curl --fail --silent --show-error --location \
-            -H "Authorization: Bearer $API_KEY" \
-            "$EAIS_API_BASE/jobs/$JOB_ID/result" \
-            -o result.json
-
+          curl --fail --silent --show-error --location -H "Authorization: Bearer $API_KEY" \
+            "$EAIS_API_BASE/jobs/$JOB_ID/result" -o result.json
           jq empty result.json
 
+      - name: Classify Spider-Man 4 rows
+        run: |
+          mkdir -p out
+          python3 scripts/classify_spiderman4.py result.json config/spiderman4-classification.json out
+
       - name: Build snapshot files
-        id: snapshot
-        shell: bash
         env:
           DATE_MSK: ${{ steps.request.outputs.date_msk }}
           TIME_MSK: ${{ steps.request.outputs.time_msk }}
@@ -171,45 +126,27 @@ jobs:
           JOB_ID: ${{ steps.create.outputs.job_id }}
         run: |
           set -euo pipefail
-          mkdir -p out
-
           cp films.json out/films.json
           cp request.json out/request.json
           cp support.json out/support.json
           cp job-created.json out/job-created.json
           cp job-status.json out/job-status.json
           cp result.json "out/eais-spiderman4-${STAMP_MSK}-msk.json"
-
           jq '.data.films // []' result.json > out/films-data.json
           jq '.data.metadata // []' result.json > out/metadata.json
           jq '.data.daily_stats // []' result.json > out/daily_stats.json
           jq '.data.daily_schedule // []' result.json > out/daily_schedule.json
           jq '.data.hourly_schedule // []' result.json > out/hourly_schedule.json
           jq '.data.errors // []' result.json > out/errors.json
-
-          jq \
-            --arg collected_at_msk "$(TZ=Europe/Moscow date --iso-8601=seconds)" \
-            --arg job_id "$JOB_ID" \
-            '{
-              collected_at_msk:$collected_at_msk,
-              job_id:$job_id,
-              request:.request,
-              summary:.summary,
-              counts:{
-                films:((.data.films // [])|length),
-                metadata:((.data.metadata // [])|length),
-                daily_stats:((.data.daily_stats // [])|length),
-                daily_schedule:((.data.daily_schedule // [])|length),
-                hourly_schedule:((.data.hourly_schedule // [])|length),
-                errors:((.data.errors // [])|length)
-              }
-            }' result.json > out/summary.json
-
-          mkdir -p "data/history/$DATE_MSK"
+          jq --arg collected_at_msk "$(TZ=Europe/Moscow date --iso-8601=seconds)" --arg job_id "$JOB_ID" \
+            '{collected_at_msk:$collected_at_msk,job_id:$job_id,request:.request,summary:.summary,counts:{films:((.data.films//[])|length),metadata:((.data.metadata//[])|length),daily_stats:((.data.daily_stats//[])|length),daily_schedule:((.data.daily_schedule//[])|length),hourly_schedule:((.data.hourly_schedule//[])|length),errors:((.data.errors//[])|length)}}' \
+            result.json > out/summary.json
+          mkdir -p "data/history/$DATE_MSK" data/latest
           cp out/summary.json "data/history/$DATE_MSK/${TIME_MSK}-summary.json"
+          cp out/spiderman4-clean-summary.json "data/history/$DATE_MSK/${TIME_MSK}-spiderman4-clean-summary.json"
           cp support.json "data/history/$DATE_MSK/${TIME_MSK}-support.json"
-          mkdir -p data/latest
           cp out/summary.json data/latest/summary.json
+          cp out/spiderman4-clean-summary.json data/latest/spiderman4-clean-summary.json
           cp support.json data/latest/support.json
 
       - name: Upload full EAIS snapshot
@@ -221,17 +158,11 @@ jobs:
           if-no-files-found: error
 
       - name: Commit compact summary history
-        shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/latest data/history
-
-          if git diff --cached --quiet; then
-            echo 'No summary changes to commit.'
-            exit 0
-          fi
-
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m "EAIS snapshot ${{ steps.request.outputs.stamp_msk }} MSK"
           git push
