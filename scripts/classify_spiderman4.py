@@ -59,7 +59,7 @@ def classify(row: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     if not cinema:
-        base["reason"] = "EAIS row has no cinema field; clean separation requires cinema-level or showtime-level data."
+        base["reason"] = "EAIS row has no cinema/demonstrator field; clean title separation is unavailable at this granularity."
         return base
 
     cinema_s = str(cinema)
@@ -99,6 +99,29 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     return out
 
 
+def choose_source(data: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]], str, bool]:
+    # Never concatenate levels: daily/hourly statistics overlap and would double-count.
+    # Native EAIS showtime identity is org_id + showroom + seans_date, but the public
+    # API may not expose native rows. Use them only if a future normalized result
+    # explicitly provides them.
+    priorities = [
+        ("native_sessions", "native_session", True),
+        ("real_sessions", "native_session", True),
+        ("showtimes", "normalized_real_session", True),
+        ("cinema_schedule", "cinema_schedule", False),
+        ("daily_schedule", "daily_schedule_aggregate", False),
+        ("hourly_schedule", "hourly_aggregate", False),
+        ("daily_stats", "daily_statistics", False),
+    ]
+    available = []
+    for name, semantics, is_real_session in priorities:
+        arr = data.get(name)
+        if isinstance(arr, list) and arr:
+            available.append({"name": name, "rows": len(arr), "semantics": semantics, "real_sessions": is_real_session})
+            return name, [r for r in arr if isinstance(r, dict)], semantics, is_real_session
+    return "none", [], "none", False
+
+
 def main() -> int:
     if len(sys.argv) < 4:
         print("usage: classify_spiderman4.py RESULT_JSON RULES_JSON OUTPUT_DIR", file=sys.stderr)
@@ -110,32 +133,24 @@ def main() -> int:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    data = result.get("data", {})
-    candidates: List[Dict[str, Any]] = []
-    source_arrays = []
-
-    # Prefer the most granular arrays first. Future API normalization may add cinema/showtime rows.
-    for name in (
-        "hourly_schedule",
-        "cinema_schedule",
-        "showtimes",
-        "daily_schedule",
-        "daily_stats",
-    ):
-        arr = data.get(name)
-        if isinstance(arr, list) and arr:
-            source_arrays.append({"name": name, "rows": len(arr)})
-            candidates.extend(arr)
-
-    classified = [classify(r, cfg) for r in candidates if isinstance(r, dict)]
+    data = result.get("data", {}) if isinstance(result, dict) else {}
+    source_name, candidates, semantics, is_real_session = choose_source(data)
+    classified = [classify(r, cfg) for r in candidates]
     summary = summarize(classified)
     summary["target"] = cfg.get("target")
-    summary["source_arrays"] = source_arrays
+    summary["selected_source"] = source_name
+    summary["source_semantics"] = semantics
+    summary["real_session_rows"] = is_real_session
     summary["cinema_level_rows"] = sum(1 for r in classified if r.get("cinema"))
     summary["separation_possible"] = summary["cinema_level_rows"] > 0
+    summary["exact_session_separation_possible"] = bool(is_real_session and summary["cinema_level_rows"] > 0)
+    summary["native_session_identity"] = ["org_id", "showroom", "seans_date"]
     summary["method_note"] = (
-        "Only rows matched by verified cinema + technical-film rules with class=target are counted as clean target. "
-        "Mixed rows are deliberately not assigned to Spider-Man 4. Cinema name alone is insufficient when the same wrapper is used for multiple western releases."
+        "Exactly one EAIS data level is selected to prevent double counting. "
+        "daily_stats, hourly_schedule and daily_schedule are treated as aggregates, not individual sessions. "
+        "Only explicitly exposed native/real session rows may be treated as separate showtimes. "
+        "Rows matched by verified cinema + technical-film rules with class=target form the clean target bucket; "
+        "mixed rows remain unallocated."
     )
 
     with open(out / "spiderman4-classified.json", "w", encoding="utf-8") as f:
