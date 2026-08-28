@@ -1,0 +1,35 @@
+{
+  "target": "Человек-паук 4",
+  "notes": "Rules are applied only when EAIS rows contain cinema/venue fields. A cinema name alone is not enough when the same technical film is used for several western titles. Mark only verified cinema+technical-film combinations as target/exclude; leave mixed cases unallocated.",
+  "cinema_fields": ["Кинотеатр", "Название кинотеатра", "cinema", "cinema_name", "theater", "theatre"],
+  "technical_film_fields": ["Запрос", "Фильм", "film", "film_name", "query"],
+  "revenue_fields": ["Сборы", "Сборы, руб.", "Сборы (руб.)", "box_office", "revenue", "gross"],
+  "sessions_fields": ["Сеансы", "Сеансы (роспись)", "sessions", "shows"],
+  "viewers_fields": ["Зрители", "Зрителей", "viewers", "admissions"],
+  "rules": [
+    {
+      "cinema_regex": "(?i)Cinema\\s*5|Синема\\s*5",
+      "technical_film_regex": "(?i)^Матч Акпарса$",
+      "class": "mixed",
+      "reason": "Подтверждены показы ЧП4, но та же оболочка использовалась как минимум для других западных релизов в отдельных Cinema 5; без времени сеанса всю кассу присваивать ЧП4 нельзя."
+    },
+    {
+      "cinema_regex": "(?i)Киноград",
+      "technical_film_regex": "(?i)^Соната$",
+      "class": "mixed",
+      "reason": "В тех же кинотеатрах через «Сонату» встречались ЧП4 и «Одиссея»."
+    },
+    {
+      "cinema_regex": "(?i)Киносфера|Kinosfera",
+      "technical_film_regex": "(?i)^Матч Акпарса$",
+      "class": "mixed",
+      "reason": "Связка с ЧП4 подтверждалась расписанием, но правило оставлено mixed до проверки конкретных времен сеансов."
+    },
+    {
+      "cinema_regex": "(?i)Киномакс.*Томск|Томск.*Киномакс",
+      "technical_film_regex": "(?i)^(Эй, человек!|Историю не изменить)$",
+      "class": "mixed",
+      "reason": "ЧП4 подтвержден, но название технической оболочки менялось; требуется точное сопоставление даты/времени."
+    }
+  ]
+}
