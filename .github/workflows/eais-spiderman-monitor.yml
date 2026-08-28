@@ -10,6 +10,14 @@ on:
         description: 'Optional JSON array of EAIS project names; empty = config/spiderman4-films.json'
         required: false
         type: string
+      period_start:
+        description: 'Optional YYYY-MM-DD; default = 2026-08-20'
+        required: false
+        type: string
+      period_end:
+        description: 'Optional YYYY-MM-DD; default = current date in MSK'
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
@@ -43,6 +51,8 @@ jobs:
         shell: bash
         env:
           INPUT_FILMS: ${{ github.event.inputs.films }}
+          INPUT_PERIOD_START: ${{ github.event.inputs.period_start }}
+          INPUT_PERIOD_END: ${{ github.event.inputs.period_end }}
         run: |
           set -euo pipefail
           if [ -n "${INPUT_FILMS:-}" ]; then
@@ -51,10 +61,40 @@ jobs:
             cp config/spiderman4-films.json films.json
           fi
           jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' films.json >/dev/null
-          jq -n --slurpfile films films.json '{films:$films[0],output_format:"json",sleep_seconds:0}' > request.json
+
+          PERIOD_START="${INPUT_PERIOD_START:-2026-08-20}"
+          PERIOD_END="${INPUT_PERIOD_END:-$(TZ=Europe/Moscow date +%F)}"
+          [[ "$PERIOD_START" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+          [[ "$PERIOD_END" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+
+          jq -n \
+            --slurpfile films films.json \
+            --arg period_start "$PERIOD_START" \
+            --arg period_end "$PERIOD_END" \
+            '{
+              films:$films[0],
+              period_start:$period_start,
+              period_end:$period_end,
+              auto_period:false,
+              include:["metadata","daily_stats","daily_schedule","hourly_schedule"],
+              options:{
+                metadata:true,
+                daily_stats:true,
+                daily_schedule:true,
+                hourly_schedule:true,
+                sessions:false,
+                daily_rospis:true,
+                hourly_rospis:true
+              },
+              output_format:"json",
+              sleep_seconds:0
+            }' > request.json
+
           echo "date_msk=$(TZ=Europe/Moscow date +%F)" >> "$GITHUB_OUTPUT"
           echo "time_msk=$(TZ=Europe/Moscow date +%H%M)" >> "$GITHUB_OUTPUT"
           echo "stamp_msk=$(TZ=Europe/Moscow date +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+          echo "period_start=$PERIOD_START" >> "$GITHUB_OUTPUT"
+          echo "period_end=$PERIOD_END" >> "$GITHUB_OUTPUT"
 
       - name: Verify API key
         env:
@@ -84,6 +124,7 @@ jobs:
             -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
             --data-binary @support-request.json -o support.json
           jq empty support.json
+          jq '[.. | objects | select((.status? // "") | ascii_downcase | test("not[_ -]?found|missing|error"))]' support.json > support-problems.json || echo '[]' > support-problems.json
 
       - name: Create EAIS film job
         id: create
@@ -142,6 +183,7 @@ jobs:
           cp films.json out/films.json
           cp request.json out/request.json
           cp support.json out/support.json
+          cp support-problems.json out/support-problems.json
           cp demonstrators.json out/demonstrators.json
           cp demonstrators-summary.json out/demonstrators-summary.json
           cp job-created.json out/job-created.json
@@ -154,18 +196,29 @@ jobs:
           jq '.data.hourly_schedule // []' result.json > out/hourly_schedule.json
           jq '.data.real_sessions // .data.native_sessions // .data.showtimes // []' result.json > out/real_sessions.json
           jq '.data.errors // []' result.json > out/errors.json
+          jq '[.data.errors // [] | .[] | {query:(.query // .film // .name // null), status:(.status // .error // "error"), message:(.message // .detail // null)}]' result.json > out/not-found-or-errors.json
+
           jq --arg collected_at_msk "$(TZ=Europe/Moscow date --iso-8601=seconds)" --arg job_id "$JOB_ID" \
             '{collected_at_msk:$collected_at_msk,job_id:$job_id,request:.request,summary:.summary,counts:{films:((.data.films//[])|length),metadata:((.data.metadata//[])|length),daily_stats:((.data.daily_stats//[])|length),daily_schedule:((.data.daily_schedule//[])|length),hourly_schedule:((.data.hourly_schedule//[])|length),real_sessions:((.data.real_sessions//.data.native_sessions//.data.showtimes//[])|length),errors:((.data.errors//[])|length)}}' \
             result.json > out/summary.json
+
           mkdir -p "data/history/$DATE_MSK" data/latest
           cp out/summary.json "data/history/$DATE_MSK/${TIME_MSK}-summary.json"
           cp out/spiderman4-clean-summary.json "data/history/$DATE_MSK/${TIME_MSK}-spiderman4-clean-summary.json"
+          cp out/not-found-or-errors.json "data/history/$DATE_MSK/${TIME_MSK}-errors.json"
           cp support.json "data/history/$DATE_MSK/${TIME_MSK}-support.json"
           cp demonstrators-summary.json "data/history/$DATE_MSK/${TIME_MSK}-demonstrators-summary.json"
           cp out/summary.json data/latest/summary.json
           cp out/spiderman4-clean-summary.json data/latest/spiderman4-clean-summary.json
+          cp out/not-found-or-errors.json data/latest/errors.json
           cp support.json data/latest/support.json
           cp demonstrators-summary.json data/latest/demonstrators-summary.json
+
+      - name: Validate aggregation semantics
+        run: |
+          set -euo pipefail
+          jq -e '(.real_session_rows == true) or (.exact_session_separation_possible == false)' out/spiderman4-clean-summary.json >/dev/null
+          jq -e 'if (.real_session_rows == false) then (.clean_target.revenue == 0 and .clean_target.sessions == 0 and .clean_target.viewers == 0) else true end' out/spiderman4-clean-summary.json >/dev/null
 
       - name: Upload full EAIS snapshot
         uses: actions/upload-artifact@v4
@@ -180,6 +233,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
           git add data/latest data/history
           if git diff --cached --quiet; then exit 0; fi
           git commit -m "EAIS snapshot ${{ steps.request.outputs.stamp_msk }} MSK"
