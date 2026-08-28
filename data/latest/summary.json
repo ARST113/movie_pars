@@ -1,0 +1,44 @@
+{
+  "collected_at_msk": "2026-08-28T12:37:53+03:00",
+  "job_id": "7e681437f457485db1aac068aee91a86",
+  "request": {
+    "films": [
+      "Прощание",
+      "Эй",
+      "человек!",
+      "Матч Акпарса",
+      "Соната",
+      "Три добрых дела",
+      "Сколько весит облако?",
+      "Край вдохновения",
+      "Авиарежим",
+      "Историю не изменить",
+      "Остановка",
+      "Рыжий очкарик",
+      "Снегур"
+    ],
+    "period_start": null,
+    "period_end": null,
+    "auto_period": true,
+    "options": {
+      "metadata": true,
+      "daily_stats": true,
+      "daily_rospis": true,
+      "hourly_rospis": false
+    }
+  },
+  "summary": {
+    "films_requested": 13,
+    "films_matched": 12,
+    "main_rows": 11,
+    "errors": 1
+  },
+  "counts": {
+    "films": 11,
+    "metadata": 12,
+    "daily_stats": 5029,
+    "daily_schedule": 996,
+    "hourly_schedule": 0,
+    "errors": 1
+  }
+}
