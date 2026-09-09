@@ -1,0 +1,12 @@
+[
+  {
+    "query": "Историю не изменить",
+    "status": "film match was not accepted",
+    "message": null
+  },
+  {
+    "query": "Снегур",
+    "status": "film match was not accepted",
+    "message": null
+  }
+]
