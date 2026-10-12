@@ -1,0 +1,39 @@
+{
+  "rows": 441,
+  "classes": {
+    "unallocated": 441
+  },
+  "clean_target": {
+    "revenue": 0.0,
+    "sessions": 0.0,
+    "viewers": 0.0
+  },
+  "mixed_unallocated": {
+    "revenue": 0.0,
+    "sessions": 0.0,
+    "viewers": 0.0
+  },
+  "excluded_other_titles": {
+    "revenue": 0.0,
+    "sessions": 0.0,
+    "viewers": 0.0
+  },
+  "unallocated": {
+    "revenue": 0.0,
+    "sessions": 168048.0,
+    "viewers": 0.0
+  },
+  "target": "Человек-паук 4",
+  "selected_source": "daily_schedule",
+  "source_semantics": "daily_schedule_aggregate",
+  "real_session_rows": false,
+  "cinema_level_rows": 0,
+  "separation_possible": false,
+  "exact_session_separation_possible": false,
+  "native_session_identity": [
+    "org_id",
+    "showroom",
+    "seans_date"
+  ],
+  "method_note": "Exactly one EAIS data level is selected to prevent double counting. daily_stats, hourly_schedule and daily_schedule are treated as aggregates, not individual sessions. Only explicitly exposed native/real session rows may be treated as separate showtimes. Rows matched by verified cinema + technical-film rules with class=target form the clean target bucket; mixed rows remain unallocated."
+}
