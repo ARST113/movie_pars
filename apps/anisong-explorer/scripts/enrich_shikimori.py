@@ -79,10 +79,8 @@ def import_public_dump(cached: dict, expected: dict[str, set[str]]) -> int:
                 continue
             if key not in expected or key in cached:
                 continue
-            if not explicit_id_key:
-                normalized_name = ' '.join(str(item.get(name_key) or '').casefold().split()) if name_key else ''
-                if not normalized_name or normalized_name not in expected[key]:
-                    continue
+            # Numeric Shikimori anime IDs correspond to MAL IDs; Shikimori-only
+            # entries with z-prefixed IDs were rejected by int() above.
             ru = str(item.get(russian_key) or '').strip()
             if not ru or ru.casefold() in ('nan','none','null'):
                 continue
