@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0a1528">
+  <meta name="description" content="Локальный поиск по каталогу AniSongDB: массовые списки аниме, фильтры, сортировка и выгрузки CSV/JSON.">
+  <title>AniSongDB · Каталог музыки</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand"><div class="brand-mark">A<span>·</span></div><div><div class="brand-name">AniSong <span>Explorer</span></div><div class="brand-sub">Музыкальный каталог аниме</div></div></div>
+      <div class="topbar-right"><span class="live-dot"></span><span id="databaseStatus">Подготовка базы…</span><button id="uploadButton" class="btn subtle small" type="button" title="Открыть SQLite-файл с компьютера">＋ Загрузить .db</button><input type="file" id="filePicker" accept=".sqlite,.db,.sqlite3" hidden></div>
+    </header>
+    <main class="main">
+      <div class="page-intro"><div><span class="eyebrow">ИССЛЕДОВАТЕЛЬСКИЙ КАТАЛОГ</span><h1>Все аниме-песни <span>в одной таблице</span></h1><p>Ищите отдельные песни или проверяйте списки из десятков и сотен аниме. Фильтры, сортировка и экспорт работают прямо в браузере.</p></div><div class="intro-aside"><span class="intro-icon">↗</span><span>Данные AniSongDB</span><a href="https://anisongdb.com/" target="_blank" rel="noopener noreferrer">Открыть источник</a></div></div>
+      <div id="notice" class="notice" role="status">Загружаем SQLite-каталог…</div>
+      <section class="metrics" aria-label="Показатели выборки">
+        <div class="metric"><span>Найдено песен</span><strong id="songsCount">—</strong><small>с учётом фильтров</small></div>
+        <div class="metric"><span>Уникальных аниме</span><strong id="animeCount">—</strong><small>в текущей выборке</small></div>
+        <div class="metric"><span>Уникальных артистов</span><strong id="artistsCount">—</strong><small>по названиям в базе</small></div>
+        <div class="metric"><span>Без названия аниме</span><strong id="emptyCount">—</strong><small>пустые значения</small></div>
+      </section>
+      <section class="workspace">
+        <aside class="filters" aria-label="Фильтры таблицы">
+          <div class="pane-head"><div><span class="mini-eyebrow">НАСТРОЙКА ВЫБОРКИ</span><h2>Фильтры</h2></div><button class="btn tiny subtle" id="resetFilters" type="button">Сбросить</button></div>
+          <div class="control"><label for="globalSearch">Поиск по всем полям</label><div class="input-with-icon"><span aria-hidden="true">⌕</span><input id="globalSearch" type="search" placeholder="Аниме, песня, артист, сезон…" autocomplete="off"></div></div>
+          <div class="control bulk-control"><div class="label-row"><label for="bulkAnime">Список аниме</label><span class="chip-hint" id="titleInputCount">0 названий</span></div><textarea id="bulkAnime" rows="7" placeholder="Naruto&#10;One Piece&#10;Bleach&#10;[пусто]" spellcheck="false" aria-describedby="bulkHelp"></textarea><div class="help" id="bulkHelp">Вставьте 10, 100 и более названий — <b>каждое с новой строки</b>. <code>[пусто]</code> ищет строки без названия.</div><div class="inline-radio"><label><input type="radio" name="titleMatch" value="partial" checked> Содержит</label><label><input type="radio" name="titleMatch" value="exact"> Совпадает точно</label></div></div>
+          <div class="control"><label for="animeBlank">Название аниме</label><select id="animeBlank"><option value="all">Любые значения</option><option value="empty">Только пустые</option><option value="filled">Только заполненные</option></select></div>
+          <div class="control"><label for="seasonFilter">Сезон</label><select id="seasonFilter"><option value="">Все сезоны</option></select></div>
+          <div class="control"><label for="animeTypeFilter">Тип аниме</label><select id="animeTypeFilter"><option value="">Все типы аниме</option></select></div>
+          <div class="control"><label for="songTypeFilter">Тип песни</label><select id="songTypeFilter"><option value="">Все типы песен</option></select></div>
+          <div class="control"><label for="songSearch">Название песни</label><input id="songSearch" type="search" placeholder="Поиск по композиции"></div>
+          <div class="control"><label for="artistSearch">Артист</label><input id="artistSearch" type="search" placeholder="Поиск по исполнителю"></div>
+          <div class="filter-footer"><div class="foot-icon">i</div><p>Все фильтры применяются одновременно. Можно использовать массовый поиск вместе с сезоном и типом песни.</p></div>
+        </aside>
+        <section class="results" aria-label="Результаты поиска">
+          <div class="result-header"><div><span class="mini-eyebrow">БАЗА ДАННЫХ</span><h2>Результаты поиска</h2><p id="resultSummary">Загружаем записи…</p></div><div class="result-actions"><button id="exportSelection" class="btn outline" type="button" disabled>Скачать выбранные <span id="selectedBadge">0</span></button><button id="exportCSV" class="btn primary" type="button" disabled>↓ Скачать CSV</button></div></div>
+          <div class="exports"><span>Экспорт:</span><button id="exportJSON" type="button">JSON выборки</button><button id="exportAllColumns" type="button">6 показателей по отдельности (ZIP)</button><span class="exports-note">↓ в заголовке — CSV показателя с частотами</span></div>
+          <div class="grid-scroll" id="tableWrap"><table><thead><tr><th class="checkbox-cell"><input id="selectPage" type="checkbox" aria-label="Выбрать текущую страницу"></th><th data-sort="season"><span class="th-content"><button class="sort-button" type="button">Сезон <span class="sort-sign">↕</span></button><button class="download-col" data-col="season" title="Скачать значения и частоты" type="button">↓</button></span></th><th data-sort="anime_type"><span class="th-content"><button class="sort-button" type="button">Тип аниме <span class="sort-sign">↕</span></button><button class="download-col" data-col="anime_type" title="Скачать значения и частоты" type="button">↓</button></span></th><th data-sort="anime_title"><span class="th-content"><button class="sort-button" type="button">Название аниме <span class="sort-sign">↕</span></button><button class="download-col" data-col="anime_title" title="Скачать значения и частоты" type="button">↓</button></span></th><th data-sort="song_type"><span class="th-content"><button class="sort-button" type="button">Тип песни <span class="sort-sign">↕</span></button><button class="download-col" data-col="song_type" title="Скачать значения и частоты" type="button">↓</button></span></th><th data-sort="song_title"><span class="th-content"><button class="sort-button" type="button">Название песни <span class="sort-sign">↕</span></button><button class="download-col" data-col="song_title" title="Скачать значения и частоты" type="button">↓</button></span></th><th data-sort="artist"><span class="th-content"><button class="sort-button" type="button">Артист <span class="sort-sign">↕</span></button><button class="download-col" data-col="artist" title="Скачать значения и частоты" type="button">↓</button></span></th></tr></thead><tbody id="rows"><tr><td colspan="7" class="placeholder">Загрузка базы данных…</td></tr></tbody></table></div>
+          <div class="pagination"><div class="page-size"><label for="pageSize">Строк на странице</label><select id="pageSize"><option>10</option><option>25</option><option selected>50</option><option>100</option><option>250</option></select></div><div class="pager"><span id="pageRange">—</span><button id="pageFirst" title="Первая" disabled>«</button><button id="pagePrev" title="Предыдущая" disabled>‹</button><span id="pageNumber">—</span><button id="pageNext" title="Следующая" disabled>›</button><button id="pageLast" title="Последняя" disabled>»</button></div></div>
+        </section>
+      </section>
+      <footer class="footer"><div>Данные: <a href="https://anisongdb.com/" target="_blank" rel="noopener noreferrer">AniSongDB</a> · <a href="https://github.com/xSardine/AMQ-Artists-DB" target="_blank" rel="noopener noreferrer">Исходный проект</a></div><div id="sourceMeta">SQLite загружается локально в браузер</div></footer>
+    </main>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
