@@ -16,9 +16,9 @@ export function parseTitles(raw) {
 }
 
 export function prepare(row) {
-  const searchable = [row.season,row.anime_type,row.anime_title,row.song_type,row.song_title,row.artist,row.anime_english,row.anime_japanese,row.anime_alt].map(text);
+  const searchable = [row.season,row.anime_type,row.anime_title,row.song_type,row.song_title,row.artist,row.anime_english,row.anime_japanese,row.anime_alt,row.anime_russian,row.anime_ru_license].map(text);
   row._norm=searchable;
-  row._names = [searchable[2], searchable[6], searchable[7], ...String(row.anime_alt || '').split(/\s\|\s|\\\$/).map(text)].filter(Boolean);
+  row._names = [searchable[2], searchable[6], searchable[7], ...String(row.anime_alt || '').split(/\s\|\s|\\\$/).map(text),searchable[9],searchable[10]].filter(Boolean);
   return row;
 }
 

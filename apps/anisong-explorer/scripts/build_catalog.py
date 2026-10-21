@@ -74,6 +74,7 @@ def json_rows(catalog):
             jp or en, kind(song.get('songType')),
             value(song.get('songName')), value(song.get('songArtist')),
             en, jp, ' | '.join(map(value, alts)), value(ann_id),
+            value((a.get('linked_ids') or {}).get('myanimelist')),
         )
 
 
@@ -87,16 +88,16 @@ def sqlite_rows(db):
             jp, en = value(s[6]), value(s[7])
             yield (value(s[10]), value(s[11]), jp or en, kind(s[16]),
                    value(s[20]), value(s[22]), en, jp,
-                   value(s[9]).replace('\\$', ' | '), value(s[0]))
+                   value(s[9]).replace('\\$', ' | '), value(s[0]), value(s[1]))
         return
     if 'songs' in tables:
         cols = {a[1] for a in db.execute('PRAGMA table_info(songs)')}
         if {'season', 'anime_type', 'anime_name', 'song_type', 'song_name', 'artist'} <= cols:
             for s in db.execute('SELECT season,anime_type,anime_name,song_type,song_name,artist FROM songs'):
-                yield (*map(value, s), '', '', '', '')
+                yield (*map(value, s), '', '', '', '', '')
             return
         if {'season', 'anime_type', 'anime_title', 'song_type', 'song_title', 'artist'} <= cols:
-            for s in db.execute('SELECT season,anime_type,anime_title,song_type,song_title,artist,anime_english,anime_japanese,anime_alt,ann_id FROM songs'):
+            for s in db.execute('SELECT season,anime_type,anime_title,song_type,song_title,artist,anime_english,anime_japanese,anime_alt,ann_id,' + ('mal_id' if 'mal_id' in cols else "''") + ' FROM songs'):
                 yield tuple(map(value,s))
             return
     raise ValueError(f'Unsupported source SQLite schema (tables: {sorted(tables)})')
@@ -122,32 +123,35 @@ def build(path, rows, source):
           anime_english TEXT NOT NULL DEFAULT '',
           anime_japanese TEXT NOT NULL DEFAULT '',
           anime_alt TEXT NOT NULL DEFAULT '',
-          ann_id TEXT NOT NULL DEFAULT ''
+          ann_id TEXT NOT NULL DEFAULT '',
+          mal_id TEXT NOT NULL DEFAULT '',
+          anime_russian TEXT NOT NULL DEFAULT '',
+          anime_ru_license TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         ''')
         batch=[]
         for row in rows:
-            if len(row) != 10:
+            if len(row) != 11:
                 raise ValueError('An input record has the wrong number of columns')
             batch.append(tuple(map(value,row)))
             if len(batch) >= 2500:
                 conn.executemany('''INSERT INTO songs (
                   season,anime_type,anime_title,song_type,song_title,artist,
-                  anime_english,anime_japanese,anime_alt,ann_id
-                ) VALUES (?,?,?,?,?,?,?,?,?,?)''', batch)
+                  anime_english,anime_japanese,anime_alt,ann_id,mal_id
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)''', batch)
                 count+=len(batch);batch.clear()
         if batch:
             conn.executemany('''INSERT INTO songs (
               season,anime_type,anime_title,song_type,song_title,artist,
-              anime_english,anime_japanese,anime_alt,ann_id
-            ) VALUES (?,?,?,?,?,?,?,?,?,?)''', batch)
+              anime_english,anime_japanese,anime_alt,ann_id,mal_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)''', batch)
             count+=len(batch)
         conn.executemany('INSERT INTO metadata VALUES (?,?)', [
             ('source', source),
             ('generated_utc', datetime.now(timezone.utc).isoformat(timespec='seconds')),
             ('song_count', str(count)),
-            ('schema_version', '1'),
+            ('schema_version', '2'),
         ])
         conn.executescript('''
         CREATE INDEX idx_songs_season ON songs(season);
@@ -155,6 +159,7 @@ def build(path, rows, source):
         CREATE INDEX idx_anime_type ON songs(anime_type);
         CREATE INDEX idx_anime_title ON songs(anime_title);
         CREATE INDEX idx_artist ON songs(artist);
+        CREATE INDEX idx_songs_mal_id ON songs(mal_id);
         ''')
         conn.commit()
         rows_written = conn.execute('SELECT count(*) FROM songs').fetchone()[0]

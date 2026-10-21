@@ -44,6 +44,8 @@ function render(){const total=state.visible.length;const pages=Math.max(1,Math.c
     tr.append(cell(r.season || textNode('нет данных','empty-value')));
     tr.append(cell(r.anime_type ? textNode(r.anime_type,'type-pill') : textNode('не указано','empty-value')));
     const anime=cell('');anime.append(textNode(r.anime_title||'пустое значение',r.anime_title?'anime-title':'empty-value'));
+    if(r.anime_russian){const ru=document.createElement('div');ru.className='title-secondary russian-title';ru.textContent=r.anime_russian;anime.append(ru)}
+    if(r.anime_ru_license && text(r.anime_ru_license)!==text(r.anime_russian)){const alt=document.createElement('div');alt.className='title-secondary';alt.textContent=r.anime_ru_license;anime.append(alt)}
     if(r.anime_english && text(r.anime_english)!==text(r.anime_title)){const hint=document.createElement('div');hint.className='title-secondary';hint.textContent=r.anime_english;anime.append(hint)}tr.append(anime);
     tr.append(cell(r.song_type ? textNode(r.song_type,'song-pill '+text(r.song_type)) : textNode('не указано','empty-value')));
     tr.append(cell(r.song_title || textNode('не указано','empty-value')));
@@ -86,15 +88,15 @@ function sqlRows(db){const tables=new Set(db.exec("SELECT name FROM sqlite_maste
   let stmt,decode;
   if(tables.has('songsFull')){
     stmt=db.prepare('SELECT * FROM songsFull');
-    decode=s=>({season:s[10],anime_type:s[11],anime_title:s[6]||s[7],song_type:({1:'Opening',2:'Ending',3:'Insert'})[s[16]]||s[16],song_title:s[20],artist:s[22],anime_english:s[7],anime_japanese:s[6],anime_alt:String(s[9]||'').replaceAll('\\$',' | '),ann_id:s[0]});
+    decode=s=>({season:s[10],anime_type:s[11],anime_title:s[6]||s[7],song_type:({1:'Opening',2:'Ending',3:'Insert'})[s[16]]||s[16],song_title:s[20],artist:s[22],anime_english:s[7],anime_japanese:s[6],anime_alt:String(s[9]||'').replaceAll('\\$',' | '),ann_id:s[0],mal_id:s[1],anime_russian:'',anime_ru_license:''});
   }else if(tables.has('songs')){
     const names=new Set(db.exec('PRAGMA table_info(songs)')[0]?.values.map(r=>r[1])||[]);
     if(names.has('anime_title')&&names.has('song_title')){
-      stmt=db.prepare('SELECT season,anime_type,anime_title,song_type,song_title,artist,anime_english,anime_japanese,anime_alt,ann_id FROM songs');
-      decode=s=>({season:s[0],anime_type:s[1],anime_title:s[2],song_type:s[3],song_title:s[4],artist:s[5],anime_english:s[6],anime_japanese:s[7],anime_alt:s[8],ann_id:s[9]});
+      stmt=db.prepare('SELECT season,anime_type,anime_title,song_type,song_title,artist,anime_english,anime_japanese,anime_alt,ann_id,' + ['mal_id','anime_russian','anime_ru_license'].map(k=>names.has(k)?k:"''").join(',') + ' FROM songs');
+      decode=s=>({season:s[0],anime_type:s[1],anime_title:s[2],song_type:s[3],song_title:s[4],artist:s[5],anime_english:s[6],anime_japanese:s[7],anime_alt:s[8],ann_id:s[9],mal_id:s[10],anime_russian:s[11],anime_ru_license:s[12]});
     }else if(names.has('anime_name')&&names.has('song_name')){
       stmt=db.prepare('SELECT season,anime_type,anime_name,song_type,song_name,artist FROM songs');
-      decode=s=>({season:s[0],anime_type:s[1],anime_title:s[2],song_type:s[3],song_title:s[4],artist:s[5],anime_english:'',anime_japanese:'',anime_alt:'',ann_id:''});
+      decode=s=>({season:s[0],anime_type:s[1],anime_title:s[2],song_type:s[3],song_title:s[4],artist:s[5],anime_english:'',anime_japanese:'',anime_alt:'',ann_id:'',mal_id:'',anime_russian:'',anime_ru_license:''});
     }
   }
   if(!stmt)throw new Error('Неподдерживаемый формат SQLite. Нужна база AniSongDB с таблицей songsFull или подготовленный файл catalog.sqlite.');
@@ -126,8 +128,28 @@ async function importFile(bytes,name){notify('Открываем SQLite-базу
   showStatus(`${formatter.format(state.rows.length)} композиций`);
   if(name.startsWith('catalog.sqlite')&&state.meta.source?.includes('(sample;'))notify('Публичный API был недоступен при сборке. Сейчас используется авторская примерная SQLite-база; для более свежих данных запустите обновление.', 'warn');
   else if(state.meta.source?.includes('demo'))notify('ДЕМОНСТРАЦИОННАЯ база. GitHub Actions автоматически заменит её полным каталогом после публикации. Также можно загрузить свою .db через кнопку вверху.', 'warn');
-  else notify(`База загружена: ${formatter.format(state.rows.length)} песен. Фильтры применяются локально, без обращений к сайту источника.`, 'info');
-  $('sourceMeta').textContent=`Источник: ${state.meta.source || name}${state.meta.generated_utc?' · обновлено '+state.meta.generated_utc.slice(0,10):''}`;
+  else notify(`База загружена: ${formatter.format(state.rows.length)} песен. Поиск по русским названиям работает для записей, сопоставленных с Shikimori.`, 'info');
+  const russianCount=state.rows.filter(r=>r.anime_russian||r.anime_ru_license).length;
+  $('sourceMeta').textContent=`Источник: ${state.meta.source || name}${state.meta.generated_utc?' · обновлено '+state.meta.generated_utc.slice(0,10):''} · Shikimori: ${formatter.format(russianCount)} песен с русскими названиями`;
+  // Optional published mapping also supports manually uploaded original AniSongDB SQLite.
+  if(!russianCount) await applyPublishedRussianTitles();
+}
+
+async function applyPublishedRussianTitles(){
+  try{
+    const response=await fetch('./data/shikimori_ru.json',{cache:'no-cache'});
+    if(!response.ok)return;
+    const payload=await response.json();
+    const titles=payload?.titles||{};
+    let populated=0;
+    for(const row of state.rows){
+      const ru=titles[String(row.mal_id||'')];if(!ru)continue;
+      row.anime_russian=ru.russian||'';row.anime_ru_license=ru.licenseNameRu||'';
+      if(row.anime_russian||row.anime_ru_license)populated++;
+      prepare(row);
+    }
+    if(populated){refresh(true);$('sourceMeta').textContent+=` · Shikimori по дополнительной карте: ${formatter.format(populated)}`;}
+  }catch(error){console.warn('Shikimori local names unavailable',error)}
 }
 
 function wire(){

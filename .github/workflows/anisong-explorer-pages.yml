@@ -22,6 +22,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,6 +36,8 @@ jobs:
           node-version: '22'
       - name: Build SQLite catalog (live API, fall back to official sample)
         run: python apps/anisong-explorer/scripts/build_catalog.py --source auto --output apps/anisong-explorer/site/data/catalog.sqlite
+      - name: Enrich database with Russian titles from Shikimori
+        run: python apps/anisong-explorer/scripts/enrich_shikimori.py --db apps/anisong-explorer/site/data/catalog.sqlite --cache apps/anisong-explorer/site/data/shikimori_ru.json --delay 1.1
       - name: Bundle sql.js locally (no runtime CDN dependency)
         run: |
           npm install --no-save --no-package-lock sql.js@1.13.0
