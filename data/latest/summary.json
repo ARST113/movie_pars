@@ -1,6 +1,6 @@
 {
-  "collected_at_msk": "2026-10-24T22:30:31+03:00",
-  "job_id": "48a237c7d24c4009b1b9cd11ee40dac8",
+  "collected_at_msk": "2026-10-25T02:10:53+03:00",
+  "job_id": "c42f6b39eb98493cbae172eda82831b3",
   "request": {
     "films": [
       {
@@ -65,7 +65,7 @@
       }
     ],
     "period_start": "2026-08-20",
-    "period_end": "2026-10-24",
+    "period_end": "2026-10-25",
     "auto_period": false,
     "filters": {
       "regions": [],
@@ -103,18 +103,18 @@
     "sessions_are_individual": false,
     "cities": 0,
     "regions": 0,
-    "halls": 1023,
-    "sessions": 89790,
-    "tickets": 2906245.0,
-    "revenue": 1801662180.0,
+    "halls": 1025,
+    "sessions": 90046,
+    "tickets": 2908943.0,
+    "revenue": 1803329292.0,
     "period_start": "2026-08-20",
-    "period_end": "2026-10-24"
+    "period_end": "2026-10-25"
   },
   "counts": {
     "films": 10,
     "metadata": 10,
-    "daily_stats": 535,
-    "daily_schedule": 535,
+    "daily_stats": 542,
+    "daily_schedule": 542,
     "hourly_schedule": 802,
     "real_sessions": 0,
     "errors": 2
