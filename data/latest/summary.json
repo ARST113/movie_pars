@@ -1,6 +1,6 @@
 {
-  "collected_at_msk": "2026-10-27T13:31:41+03:00",
-  "job_id": "527351a102d84eaaaac09bf1a12e652b",
+  "collected_at_msk": "2026-10-27T19:35:30+03:00",
+  "job_id": "4813be03667841c8933c3dcf505e0c7d",
   "request": {
     "films": [
       {
@@ -97,16 +97,16 @@
     "films_fuzzy": 0,
     "films_not_found": 2,
     "errors": 2,
-    "cinemas": 349,
+    "cinemas": 350,
     "cinemas_are_unique": false,
     "halls_are_unique": false,
     "sessions_are_individual": false,
     "cities": 0,
     "regions": 0,
-    "halls": 1029,
-    "sessions": 90969,
-    "tickets": 2929460.0,
-    "revenue": 1814927357.0,
+    "halls": 1030,
+    "sessions": 91050,
+    "tickets": 2931654.0,
+    "revenue": 1815960244.0,
     "period_start": "2026-08-20",
     "period_end": "2026-10-27"
   },
