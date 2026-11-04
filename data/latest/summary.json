@@ -1,6 +1,6 @@
 {
-  "collected_at_msk": "2026-11-04T15:59:23+03:00",
-  "job_id": "7f78079f583748e8921adf393f3b05f3",
+  "collected_at_msk": "2026-11-05T01:38:26+03:00",
+  "job_id": "dd09931ac69d493d886e1cfab8f18863",
   "request": {
     "films": [
       {
@@ -65,7 +65,7 @@
       }
     ],
     "period_start": "2026-08-20",
-    "period_end": "2026-11-04",
+    "period_end": "2026-11-05",
     "auto_period": false,
     "filters": {
       "regions": [],
@@ -97,24 +97,24 @@
     "films_fuzzy": 0,
     "films_not_found": 2,
     "errors": 2,
-    "cinemas": 354,
+    "cinemas": 357,
     "cinemas_are_unique": false,
     "halls_are_unique": false,
     "sessions_are_individual": false,
     "cities": 0,
     "regions": 0,
-    "halls": 1105,
-    "sessions": 94220,
-    "tickets": 2994469.0,
-    "revenue": 1849091157.0,
+    "halls": 1115,
+    "sessions": 94463,
+    "tickets": 3001148.0,
+    "revenue": 1852868156.0,
     "period_start": "2026-08-20",
-    "period_end": "2026-11-04"
+    "period_end": "2026-11-05"
   },
   "counts": {
     "films": 10,
     "metadata": 10,
-    "daily_stats": 614,
-    "daily_schedule": 614,
+    "daily_stats": 622,
+    "daily_schedule": 622,
     "hourly_schedule": 802,
     "real_sessions": 0,
     "errors": 2
