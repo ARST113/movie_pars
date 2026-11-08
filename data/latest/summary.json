@@ -1,6 +1,6 @@
 {
-  "collected_at_msk": "2026-11-08T03:32:54+03:00",
-  "job_id": "1376653b2c6c42329e4edce18d52f1a0",
+  "collected_at_msk": "2026-11-08T14:56:10+03:00",
+  "job_id": "76662e425ff74be783fe73b975576f58",
   "request": {
     "films": [
       {
@@ -104,9 +104,9 @@
     "cities": 0,
     "regions": 0,
     "halls": 1127,
-    "sessions": 95885,
-    "tickets": 3030679.0,
-    "revenue": 1870248593.0,
+    "sessions": 95951,
+    "tickets": 3033174.0,
+    "revenue": 1871622454.0,
     "period_start": "2026-08-20",
     "period_end": "2026-11-08"
   },
