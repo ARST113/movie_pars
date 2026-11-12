@@ -1,6 +1,12 @@
 name: Backfill book descriptions
 
 on:
+  push:
+    paths:
+      - '.github/workflows/book-descriptions.yml'
+      - 'book_descriptions/**'
+  schedule:
+    - cron: '17 */4 * * *'
   workflow_dispatch:
     inputs:
       limit:
@@ -39,8 +45,10 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'google/gemini-2.5-flash-lite' }}
       USE_BROWSER: 'true'
-      WORKERS: '6'
+      WORKERS: '4'
       BATCH_SIZE: '150'
+      FIRECRAWL_RESERVE_CREDITS: '25'
+      FIRECRAWL_MAX_URLS_PER_SHARD: '250'
       CLOUD_BUDGET_SECONDS: '14800'
       INPUT_LIMIT: ${{ inputs.limit || 1500 }}
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
@@ -57,11 +65,15 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Verify parser, batch API handling and spreadsheet column logic
         run: python -m unittest discover -s book_descriptions/tests -v
-      - name: Require Google and cloud Firecrawl secrets
+      - name: Check Google credentials and optional Firecrawl fallback
         shell: bash
         run: |
           test -n "$GOOGLE_SERVICE_ACCOUNT_JSON" || { echo "Missing GOOGLE_SERVICE_ACCOUNT_JSON" >&2; exit 2; }
-          test -n "$FIRECRAWL_API_KEY" || { echo "Missing FIRECRAWL_API_KEY" >&2; exit 2; }
+          if [ -n "$FIRECRAWL_API_KEY" ]; then
+            echo "Cloud Firecrawl fallback is enabled; its live credit balance is checked before every batch."
+          else
+            echo "Firecrawl secret is absent; direct HTTP and Chromium collection will continue."
+          fi
       - name: Direct plus browser collection, then official Firecrawl Batch Scrape
         shell: bash
         run: |
