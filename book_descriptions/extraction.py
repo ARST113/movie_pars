@@ -28,6 +28,10 @@ BAD = (
     "недостаточно информации", "не могу составить", "не удалось найти описание", "я не могу",
     "отзывы читателей", "купить книгу по привлекательной цене",
     "среди миллиона книг", "аннотация, 🔝", "купить книги и учебники",
+    "информация, где купить книгу", "аннотация, характеристики, фото обложки",
+    "полистать", "развернуть полистать", "покупайте книги", "добавить в корзину",
+    "от автора супербестселлера", "от автора бестселлеров",
+    "национальный бестселлер", "книги издательства аст",
 )
 SELECTORS = (
     '[itemprop="description"]', '[data-testid="book-description"]',
@@ -59,6 +63,9 @@ def plausible(value: str) -> bool:
         return False
     # SEO metadata includes a book title and ISBN but no substantive description.
     if low.startswith("книга:") and any(t in low for t in ("аннотация", "купить", "отзывы", "isbn")):
+        return False
+    # Catalog and search-engine snippets are not plot descriptions.
+    if any(x in low for x in ("аннотация, характеристики", "где купить книгу", "фото обложки, информация")):
         return False
     if sum(ch.isalpha() for ch in value) < len(value) * .55:
         return False
