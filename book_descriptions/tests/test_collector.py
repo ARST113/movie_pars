@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from collector import BookRow, group_shard, is_product_row, key_for, pick_columns, reuse, letter
-from extraction import from_html, from_markdown, plausible, trusted_url
+from extraction import from_html, from_markdown, normalise_text, plausible, trusted_url
 
 
 class CollectorTests(unittest.TestCase):
@@ -33,6 +33,22 @@ class CollectorTests(unittest.TestCase):
     def test_generic_meta_rejected(self):
         html = '<meta name="description" content="Купить книгу в интернет-магазине книг со скидкой! Доставка по всей России, отзывы покупателей, большой ассортимент изданий и удобный сервис.">'
         self.assertIsNone(from_html(html))
+
+    def test_labirint_seo_snippet_rejected(self):
+        snippet = ('Книга: Пламя одержимости (A Burning Obsession).📙 Автор: Майк Омер. '
+                   'Аннотация, 🔝 отзывы читателей, иллюстрации. Купить книгу по привлекательной цене '
+                   'среди миллиона книг "Лабиринта" | ISBN 978-5-04-185552-9')
+        html = '<meta name="description" content="' + snippet.replace('"', '&quot;') + '">'
+        self.assertFalse(plausible(snippet))
+        self.assertIsNone(from_html(html))
+
+    def test_chitai_gorod_catalog_prefix_removed(self):
+        text = ('Описание и характеристики Young Adult Игры на выживание Читайте и помогайте! '
+                '«Последний гамбит» — детективный роман о девушке, которой необходимо '
+                'раскрыть тайны дома Хоторнов до совершеннолетия, спасая наследство.')
+        cleaned = normalise_text(text)
+        self.assertTrue(cleaned.startswith('«Последний гамбит» —'))
+        self.assertTrue(plausible(cleaned))
 
     def test_markdown_section(self):
         markdown = '# Название\n## О книге\nГероиня оказывается вдали от дома, вынуждена искать своего пропавшего брата и исследовать тайны старого королевства. На её пути встречаются друзья, враги и неожиданное предательство.\n## Характеристики\nISBN 123'
