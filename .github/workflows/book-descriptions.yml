@@ -7,17 +7,17 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "Maximum unique book groups per shard (default covers the entire sheet)"
+        description: "Max book rows per shard (1500 covers the entire remaining database)"
+        required: false
         type: number
-        required: false
-        default: 800
+        default: 1500
       dry_run:
-        description: "Read-only inspection, no Google Sheets updates"
-        type: boolean
+        description: "Read-only preview (no descriptions written)"
         required: false
+        type: boolean
         default: false
   schedule:
-    - cron: "11,41 * * * *"
+    - cron: '21 */4 * * *'
 
 concurrency:
   group: book-descriptions-google-sheet
@@ -29,29 +29,26 @@ permissions:
 jobs:
   backfill:
     if: ${{ vars.BOOK_DESCRIPTIONS_ENABLED != 'false' }}
-    name: Shard ${{ matrix.shard }} of 16
+    name: Books shard ${{ matrix.shard }}/4
     runs-on: ubuntu-24.04
-    timeout-minutes: 340
+    timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: 4
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        shard: [0, 1, 2, 3]
     env:
       SPREADSHEET_ID: '1EhKpBf0VHW_kBVMgIwZv0_cE4-jtLhm9OYZMDGUqwpw'
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
-      FIRECRAWL_BASE_URL: https://api.firecrawl.dev/v2
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'google/gemini-2.5-flash-lite' }}
       USE_BROWSER: 'true'
       WORKERS: '6'
-      MAX_BOOKS: '800'
-      SHARDS: '16'
-      FIRECRAWL_MAX_REQUESTS: '0'
-      INPUT_LIMIT: ${{ inputs.limit || 800 }}
+      BATCH_SIZE: '150'
+      CLOUD_BUDGET_SECONDS: '14800'
+      INPUT_LIMIT: ${{ inputs.limit || 1500 }}
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
-      INPUT_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -59,28 +56,28 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: book_descriptions/requirements.txt
-      - name: Install dependencies and Chromium
+      - name: Install Python, Firecrawl client dependencies and Chromium
         run: |
-          pip install -r book_descriptions/requirements.txt
+          python -m pip install -r book_descriptions/requirements.txt
           python -m playwright install --with-deps chromium
-      - name: Run tests
+      - name: Verify parser, batch API handling and spreadsheet column logic
         run: python -m unittest discover -s book_descriptions/tests -v
-      - name: Check secrets
+      - name: Require Google and cloud Firecrawl secrets
         shell: bash
         run: |
-          test -n "$GOOGLE_SERVICE_ACCOUNT_JSON" || { echo "Missing Google service account secret" >&2; exit 2; }
-          test -n "$FIRECRAWL_API_KEY" || { echo "Missing Firecrawl API secret" >&2; exit 2; }
-      - name: Collect descriptions and update Google Sheets
+          test -n "$GOOGLE_SERVICE_ACCOUNT_JSON" || { echo "Missing GOOGLE_SERVICE_ACCOUNT_JSON" >&2; exit 2; }
+          test -n "$FIRECRAWL_API_KEY" || { echo "Missing FIRECRAWL_API_KEY" >&2; exit 2; }
+      - name: Direct plus browser collection, then official Firecrawl Batch Scrape
         shell: bash
         run: |
-          ARGS=(--limit "$INPUT_LIMIT" --shards "$SHARDS" --shard "$INPUT_SHARD")
+          ARGS=(--shard "${{ matrix.shard }}" --shards 4 --limit "$INPUT_LIMIT")
           if [ "$INPUT_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
-          python book_descriptions/collector.py "${ARGS[@]}"
-      - name: Publish shard report
+          python -u book_descriptions/batch_backfill.py "${ARGS[@]}"
+      - name: Upload batch progress report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: book-descriptions-${{ github.run_id }}-shard-${{ matrix.shard }}
-          path: book-descriptions-report.json
+          name: book-description-batch-${{ github.run_id }}-shard-${{ matrix.shard }}
+          path: batch-description-report-*.json
           if-no-files-found: ignore
           retention-days: 14
