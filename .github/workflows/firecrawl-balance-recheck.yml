@@ -1,0 +1,35 @@
+name: Firecrawl balance recheck
+
+on:
+  push:
+    paths:
+      - '.github/workflows/firecrawl-balance-recheck.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Read current team balance (no scraping)
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$FIRECRAWL_API_KEY"
+          curl --silent --show-error --fail-with-body \
+            --header "Authorization: Bearer $FIRECRAWL_API_KEY" \
+            https://api.firecrawl.dev/v2/team/credit-usage \
+            -o /tmp/balance.json
+          python - <<'PY'
+          import json
+          x=json.load(open("/tmp/balance.json"))
+          d=x.get("data") or {}
+          print("success:", x.get("success"))
+          print("remainingCredits:", d.get("remainingCredits"))
+          print("planCredits:", d.get("planCredits"))
+          print("billingPeriodStart:", d.get("billingPeriodStart"))
+          print("billingPeriodEnd:", d.get("billingPeriodEnd"))
+          PY
