@@ -11,7 +11,10 @@ import json
 import logging
 import os
 import re
+import ssl
 import time
+
+import httplib2
 import unicodedata
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,6 +26,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import requests
+from googleapiclient.errors import HttpError
 
 from extraction import Extraction, Retriever, normalise_text, plausible, trusted_url
 
@@ -117,15 +121,47 @@ class Sheets:
         self.api = build("sheets", "v4", credentials=cred, cache_discovery=False)
         self.id = spreadsheet_id
 
+    @staticmethod
+    def _transient(exc: Exception) -> bool:
+        if isinstance(exc, HttpError):
+            try:
+                return int(exc.resp.status) in {408, 429, 500, 502, 503, 504}
+            except (AttributeError, TypeError, ValueError):
+                return False
+        return isinstance(exc, (ssl.SSLError, OSError, TimeoutError, httplib2.HttpLib2Error))
+
+    def _execute_read(self, request_factory, operation: str, attempts: int = 8):
+        """Retry transient Google API/network failures using a fresh request object."""
+        for attempt in range(attempts):
+            try:
+                return request_factory().execute(num_retries=2)
+            except Exception as exc:
+                if not self._transient(exc) or attempt == attempts - 1:
+                    raise
+                delay = min(45, 1.5 * (2 ** attempt))
+                LOG.warning("Google Sheets %s failed (%s); retry %d/%d in %.1fs",
+                            operation, str(exc)[:140], attempt + 1, attempts, delay)
+                time.sleep(delay)
+        raise RuntimeError(f"Google Sheets {operation} retry loop exhausted")
+
     def metadata(self) -> dict:
-        return self.api.spreadsheets().get(spreadsheetId=self.id, fields="sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))").execute()
+        return self._execute_read(
+            lambda: self.api.spreadsheets().get(
+                spreadsheetId=self.id,
+                fields="sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))"
+            ),
+            "metadata",
+        )
 
     def read(self, columns_by_name: dict[str, int]) -> dict[str, list[list[Any]]]:
         names = list(columns_by_name)
         ranges = ["'" + name.replace("'", "''") + "'!A1:" + letter(columns_by_name[name] - 1) for name in names]
-        data = self.api.spreadsheets().values().batchGet(
-            spreadsheetId=self.id, ranges=ranges, valueRenderOption="FORMULA"
-        ).execute()
+        data = self._execute_read(
+            lambda: self.api.spreadsheets().values().batchGet(
+                spreadsheetId=self.id, ranges=ranges, valueRenderOption="FORMULA"
+            ),
+            "batch read",
+        )
         return {name: part.get("values", []) for name, part in zip(names, data.get("valueRanges", []))}
 
     def add_columns(self, specs: list[dict]):
@@ -154,33 +190,49 @@ class Sheets:
         if dry_run:
             LOG.info("DRY-RUN: would write %s descriptions", len(updates))
             return 0
-        # Re-read destination cells to preserve concurrent or manually entered content.
-        spans = []
-        for row, _ in updates:
-            escaped = row.sheet_title.replace("'", "''")
-            spans.extend((f"'{escaped}'!{letter(row.desc_col)}{row.number}",
-                          f"'{escaped}'!{letter(row.source_col)}{row.number}"))
-        current = self.api.spreadsheets().values().batchGet(
-            spreadsheetId=self.id, ranges=spans, valueRenderOption="FORMULA"
-        ).execute().get("valueRanges", [])
-        write = []
-        count = 0
-        for idx, (row, candidate) in enumerate(updates):
-            desc_now = (current[2 * idx].get("values") or [[]])[0] if 2 * idx < len(current) else []
-            src_now = (current[2 * idx + 1].get("values") or [[]])[0] if 2 * idx + 1 < len(current) else []
-            if desc_now:
-                continue
-            escaped = row.sheet_title.replace("'", "''")
-            write.append({"range": f"'{escaped}'!{letter(row.desc_col)}{row.number}", "values": [[candidate.description]]})
-            if not src_now:
-                write.append({"range": f"'{escaped}'!{letter(row.source_col)}{row.number}", "values": [[candidate.source_url]]})
-            count += 1
-        # A batch is atomic at Sheets API level. Never blank existing other cells.
-        if write:
-            self.api.spreadsheets().values().batchUpdate(spreadsheetId=self.id, body={
-                "valueInputOption": "RAW", "data": write
-            }).execute()
-        return count
+
+        # Retry the entire read-check-write transaction. If a write succeeded but
+        # its response was lost (SSL EOF), the next attempt re-reads the cells and
+        # skips them instead of overwriting a concurrent human edit.
+        for attempt in range(8):
+            try:
+                spans = []
+                for row, _ in updates:
+                    escaped = row.sheet_title.replace("'", "''")
+                    spans.extend((f"'{escaped}'!{letter(row.desc_col)}{row.number}",
+                                  f"'{escaped}'!{letter(row.source_col)}{row.number}"))
+                current = self.api.spreadsheets().values().batchGet(
+                    spreadsheetId=self.id, ranges=spans, valueRenderOption="FORMULA"
+                ).execute(num_retries=2)
+
+                write = []
+                count = 0
+                for idx, (row, candidate) in enumerate(updates):
+                    desc_now = (current.get("valueRanges", [])[2 * idx].get("values") or [[]])[0] if 2 * idx < len(current.get("valueRanges", [])) else []
+                    src_now = (current.get("valueRanges", [])[2 * idx + 1].get("values") or [[]])[0] if 2 * idx + 1 < len(current.get("valueRanges", [])) else []
+                    if desc_now and str(desc_now[0]).strip():
+                        continue
+                    escaped = row.sheet_title.replace("'", "''")
+                    write.append({"range": f"'{escaped}'!{letter(row.desc_col)}{row.number}", "values": [[candidate.description]]})
+                    if not src_now or not str(src_now[0]).strip():
+                        write.append({"range": f"'{escaped}'!{letter(row.source_col)}{row.number}", "values": [[candidate.source_url]]})
+                    count += 1
+
+                if write:
+                    self.api.spreadsheets().values().batchUpdate(
+                        spreadsheetId=self.id,
+                        body={"valueInputOption": "RAW", "data": write},
+                    ).execute(num_retries=0)
+                return count
+            except Exception as exc:
+                if not self._transient(exc) or attempt == 7:
+                    raise
+                delay = min(45, 1.5 * (2 ** attempt))
+                LOG.warning("Google Sheets write transaction failed (%s); re-reading and retrying %d/8 in %.1fs",
+                            str(exc)[:160], attempt + 1, delay)
+                time.sleep(delay)
+        raise RuntimeError("Google Sheets write retry loop exhausted")
+
 
 
 def prepare(sheets: Sheets, dry_run: bool) -> tuple[list[BookRow], list[dict]]:
