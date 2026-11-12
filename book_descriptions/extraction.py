@@ -203,7 +203,7 @@ class Retriever:
         self.browser = Browser(use_browser)
         self.cache: dict[str, Extraction | None] = {}
         self.firecrawl_calls = 0
-        self.firecrawl_limit = max(0, int(os.getenv("FIRECRAWL_MAX_REQUESTS", "220")))
+        self.firecrawl_limit = max(0, int(os.getenv("FIRECRAWL_MAX_REQUESTS", "0")))  # 0 = unlimited
 
     def http_get(self, url: str) -> str | None:
         for attempt in range(2):
@@ -219,26 +219,31 @@ class Retriever:
         return None
 
     def firecrawl_scrape(self, url: str) -> tuple[str | None, str | None]:
-        if not self.firecrawl_key or self.firecrawl_calls >= self.firecrawl_limit:
+        if not self.firecrawl_key or (self.firecrawl_limit and self.firecrawl_calls >= self.firecrawl_limit):
             return None, None
         self.firecrawl_calls += 1
         try:
-            resp = self.session.post(
-                self.firecrawl_base + "/scrape",
-                json={"url": url, "formats": ["html", "markdown"], "onlyMainContent": True, "maxAge": 0},
-                headers={"Authorization": "Bearer " + self.firecrawl_key}, timeout=30,
-            )
-            if not resp.ok:
-                LOG.warning("Firecrawl scrape HTTP %s on %s", resp.status_code, url)
-                return None, None
-            data = resp.json().get("data") or {}
-            return data.get("html"), data.get("markdown")
+            for attempt in range(3):
+                resp = self.session.post(
+                    self.firecrawl_base + "/scrape",
+                    json={"url": url, "formats": ["html", "markdown"], "onlyMainContent": True, "maxAge": 0},
+                    headers={"Authorization": "Bearer " + self.firecrawl_key}, timeout=30,
+                )
+                if resp.status_code in (429, 502, 503) and attempt < 2:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                if not resp.ok:
+                    LOG.warning("Firecrawl scrape HTTP %s on %s", resp.status_code, url)
+                    return None, None
+                data = resp.json().get("data") or {}
+                return data.get("html"), data.get("markdown")
+            return None, None
         except (requests.RequestException, ValueError) as exc:
             LOG.warning("Firecrawl scrape failed %s: %s", url, str(exc)[:120])
             return None, None
 
     def find_other_url(self, title: str, author: str, current_url: str) -> list[str]:
-        if not self.firecrawl_key or self.firecrawl_calls >= self.firecrawl_limit:
+        if not self.firecrawl_key or (self.firecrawl_limit and self.firecrawl_calls >= self.firecrawl_limit):
             return []
         self.firecrawl_calls += 1
         # Query is restricted to known book websites, and every returned URL is validated.
