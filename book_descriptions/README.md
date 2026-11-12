@@ -23,9 +23,9 @@
 4. Откройте [GitHub Repository secrets](https://github.com/ARST113/movie_pars/settings/secrets/actions) → **New repository secret**. Имя: `GOOGLE_SERVICE_ACCOUNT_JSON`; значение: **всё содержимое скачанного JSON-файла**, включая фигурные скобки и переводы строк.
 5. Для официального **облачного Firecrawl**, откройте [firecrawl.dev](https://www.firecrawl.dev/) → **Dashboard → API Keys**, получите отдельный ключ (обычно начинается с `fc-`) и поместите его туда же, в GitHub Repository secrets, под именем `FIRECRAWL_API_KEY`. Сборщик обращается непосредственно к **https://api.firecrawl.dev/v2**, локальный MCP-сервер нигде не используется.
 6. Необязательно добавить `OPENROUTER_API_KEY`. Тогда описания будут **пересказаны в 2–4 предложениях** с сохранением подтверждённых фактов. Без него скрипт запишет нормализованную выдержку из явного поля описания товара (не более 1000 символов). Можно задать `OPENROUTER_MODEL`, например модель с небольшим расходом токенов. При ошибке генерации исходное описание не записывается, чтобы не подменять результат необоснованной аннотацией.
-7. В [GitHub Repository variables](https://github.com/ARST113/movie_pars/settings/variables/actions) добавьте `BOOK_DESCRIPTIONS_ENABLED=true`. Это защита от случайных запусков до подключения Google и Firecrawl. Запустите [Actions → Backfill book descriptions](https://github.com/ARST113/movie_pars/actions/workflows/book-descriptions.yml) сначала с `dry_run=true`, затем с `dry_run=false`.
+7. Расписание включено автоматически после добавления обоих ключей. Чтобы временно остановить сбор, в [GitHub Repository variables](https://github.com/ARST113/movie_pars/settings/variables/actions) добавьте `BOOK_DESCRIPTIONS_ENABLED=false`; значение `true` или отсутствие переменной разрешает запуск. Запуск вручную доступен в [Actions → Backfill book descriptions](https://github.com/ARST113/movie_pars/actions/workflows/book-descriptions.yml).
 
-**Важно:** подключение приложения Firecrawl внутри ChatGPT не даёт GitHub Actions доступ к ключу пользователя: для автономных запусков ключ нужно добавить отдельно в GitHub Secrets. Не отправляйте ключи в чат, задачи GitHub Issues, открытые файлы или код. Поскольку Firecrawl расходует кредиты, выставьте ограничение бюджета в кабинете Firecrawl и при необходимости снизьте переменную `FIRECRAWL_MAX_REQUESTS` (по умолчанию 220 запросов за запуск, шесть запусков в сутки).
+**Важно:** подключение приложения Firecrawl внутри ChatGPT не даёт GitHub Actions доступ к ключу пользователя: для автономных запусков ключ нужно добавить отдельно в GitHub Secrets. Не отправляйте ключи в чат, задачи GitHub Issues, открытые файлы или код. Поскольку Firecrawl расходует кредиты, выставьте ограничение бюджета в кабинете Firecrawl и при необходимости снизьте переменную `FIRECRAWL_MAX_REQUESTS` (по умолчанию 15 запросов за запуск, шесть запусков в сутки).
 
 
 ### Быстрое ручное заполнение
@@ -37,7 +37,7 @@
 | Переменная/секрет | Значение |
 |---|---|
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Обязательно: JSON служебного аккаунта Google |
-| `BOOK_DESCRIPTIONS_ENABLED` | Обязательно: `true` для включения заданий |
+| `BOOK_DESCRIPTIONS_ENABLED` | Необязательная переменная: `false` приостанавливает расписание, `true`/отсутствие разрешают запуск |
 | `FIRECRAWL_API_KEY` | Обязательно при включённом Actions: ключ официального облачного Firecrawl |
 | `FIRECRAWL_MAX_REQUESTS` | Необязательная GitHub Variable: максимум Firecrawl API-запросов за запуск (по умолчанию 220) |
 | `FIRECRAWL_BASE_URL` | Жёстко задан официальный облачный адрес `https://api.firecrawl.dev/v2` в Actions |
@@ -65,4 +65,4 @@ python book_descriptions/collector.py --dry-run --limit 20 --all
 - При недоступности источника ячейка остаётся пустой для последующего запуска.
 - У каждого добавленного описания есть URL источника в соседнем столбце.
 - Для листа без столбцов описания и источника эти столбцы создаются **только если на листе есть настоящие карточки книг**.
-- Ограничения доступа и robots.txt/правила сайтов необходимо соблюдать; обход защит, требующих авторизации или антибот-проверок, не предусмотрен.
+- Рекламные описания магазинов, SEO-заголовки, метаданные о ценах и отзывах автоматически отбрасываются. Ограничения доступа и robots.txt/правила сайтов необходимо соблюдать; обход защит, требующих авторизации или антибот-проверок, не предусмотрен.
