@@ -17,11 +17,16 @@
 
 ## Настройка один раз
 
-1. В Google Cloud включить **Google Sheets API**, создать **Service Account** и получить JSON-ключ. Разрешить служебному адресу этого аккаунта редактирование целевой Google-таблицы (Share → Editor). Не загружать ключ в репозиторий и не включать его в логи.
-2. В GitHub: **Settings → Secrets and variables → Actions → Repository secrets** добавить `GOOGLE_SERVICE_ACCOUNT_JSON` (содержимое ключа целиком).
-3. Рекомендуется добавить `FIRECRAWL_API_KEY`. Для собственного удалённого Firecrawl указать Variables `FIRECRAWL_BASE_URL` с внешне доступным API v2 URL. Локальный MCP Firecawl в ChatGPT не подключается автоматически к машинам GitHub — нужен отдельный доступный HTTP API.
-4. Необязательно добавить `OPENROUTER_API_KEY`. Тогда описания будут **пересказаны в 2–4 предложениях** с сохранением подтверждённых фактов. Без него скрипт запишет нормализованную выдержку из явного поля описания товара (не более 1000 символов). Можно задать `OPENROUTER_MODEL`, например модель с небольшим расходом токенов. При ошибке генерации исходное описание не записывается, чтобы не подменять результат необоснованной аннотацией.
-5. В **Repository variables** добавить `BOOK_DESCRIPTIONS_ENABLED=true`. Это защита от случайных запусков до подключения Google. Запустить в Actions → Backfill book descriptions → Run workflow сначала с `dry_run=true`, затем с `dry_run=false`.
+1. Откройте [Google Cloud Console](https://console.cloud.google.com/) и создайте проект `book-descriptions` (либо выберите существующий). Включите [Google Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com).
+2. Перейдите в [IAM → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts), создайте служебный аккаунт `book-sheets-writer`. Административные роли для Cloud ему не нужны. Откройте аккаунт → **Keys → Add key → Create new key → JSON** и скачайте ключ на свой компьютер. Если в организации создание ключей запрещено политикой безопасности, потребуется другая конфигурация авторизации, а не публичное размещение ключа.
+3. Откройте [нашу Google-таблицу](https://docs.google.com/spreadsheets/d/1EhKpBf0VHW_kBVMgIwZv0_cE4-jtLhm9OYZMDGUqwpw/edit) → **Настройки доступа / Share**. Добавьте email аккаунта вида `book-sheets-writer@PROJECT_ID.iam.gserviceaccount.com` с правами **Редактор / Editor**. Снимите галочку оповещения. Других Google-документов он видеть не должен.
+4. Откройте [GitHub Repository secrets](https://github.com/ARST113/movie_pars/settings/secrets/actions) → **New repository secret**. Имя: `GOOGLE_SERVICE_ACCOUNT_JSON`; значение: **всё содержимое скачанного JSON-файла**, включая фигурные скобки и переводы строк.
+5. Для официального **облачного Firecrawl**, откройте [firecrawl.dev](https://www.firecrawl.dev/) → **Dashboard → API Keys**, получите отдельный ключ (обычно начинается с `fc-`) и поместите его туда же, в GitHub Repository secrets, под именем `FIRECRAWL_API_KEY`. Сборщик обращается непосредственно к **https://api.firecrawl.dev/v2**, локальный MCP-сервер нигде не используется.
+6. Необязательно добавить `OPENROUTER_API_KEY`. Тогда описания будут **пересказаны в 2–4 предложениях** с сохранением подтверждённых фактов. Без него скрипт запишет нормализованную выдержку из явного поля описания товара (не более 1000 символов). Можно задать `OPENROUTER_MODEL`, например модель с небольшим расходом токенов. При ошибке генерации исходное описание не записывается, чтобы не подменять результат необоснованной аннотацией.
+7. В [GitHub Repository variables](https://github.com/ARST113/movie_pars/settings/variables/actions) добавьте `BOOK_DESCRIPTIONS_ENABLED=true`. Это защита от случайных запусков до подключения Google и Firecrawl. Запустите [Actions → Backfill book descriptions](https://github.com/ARST113/movie_pars/actions/workflows/book-descriptions.yml) сначала с `dry_run=true`, затем с `dry_run=false`.
+
+**Важно:** подключение приложения Firecrawl внутри ChatGPT не даёт GitHub Actions доступ к ключу пользователя: для автономных запусков ключ нужно добавить отдельно в GitHub Secrets. Не отправляйте ключи в чат, задачи GitHub Issues, открытые файлы или код. Поскольку Firecrawl расходует кредиты, выставьте ограничение бюджета в кабинете Firecrawl и при необходимости снизьте переменную `FIRECRAWL_MAX_REQUESTS` (по умолчанию 220 запросов за запуск, шесть запусков в сутки).
+
 
 ### Быстрое ручное заполнение
 
@@ -33,9 +38,9 @@
 |---|---|
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Обязательно: JSON служебного аккаунта Google |
 | `BOOK_DESCRIPTIONS_ENABLED` | Обязательно: `true` для включения заданий |
-| `FIRECRAWL_API_KEY` | Дополнительно, улучшает охват заблокированных сайтов |
-| `FIRECRAWL_MAX_REQUESTS` | До 220 Firecrawl API-запросов за запуск, чтобы ограничить расходы |
-| `FIRECRAWL_BASE_URL` | URL API v2, по умолчанию `https://api.firecrawl.dev/v2` |
+| `FIRECRAWL_API_KEY` | Обязательно при включённом Actions: ключ официального облачного Firecrawl |
+| `FIRECRAWL_MAX_REQUESTS` | Необязательная GitHub Variable: максимум Firecrawl API-запросов за запуск (по умолчанию 220) |
+| `FIRECRAWL_BASE_URL` | Жёстко задан официальный облачный адрес `https://api.firecrawl.dev/v2` в Actions |
 | `OPENROUTER_API_KEY` | Дополнительно, включает краткий редакционный пересказ |
 | `OPENROUTER_MODEL` | По умолчанию `google/gemini-2.5-flash-lite` |
 | `MAX_BOOKS` | До 150 веб-карточек за запуск |
