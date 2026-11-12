@@ -15,7 +15,7 @@ import time
 import unicodedata
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock, local
+from threading import Barrier, Lock, local
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -414,11 +414,25 @@ def main() -> int:
                 if finished % 25 == 0:
                     LOG.info("Shard progress: %d/%d unique books, written=%d unavailable=%d",
                              finished, len(pending_jobs), stats["written"], stats["unavailable"])
+            # Playwright must close in the same thread where it was started.
+            # A barrier guarantees every pool thread runs its own finalizer.
+            if retrievers:
+                shutdown_gate = Barrier(workers)
+                def worker_cleanup() -> None:
+                    shutdown_gate.wait(timeout=30)
+                    owned = getattr(local_state, "retriever", None)
+                    if owned is not None:
+                        owned.close()
+                cleanup_jobs = [pool.submit(worker_cleanup) for _ in range(workers)]
+                for job in cleanup_jobs:
+                    try:
+                        job.result()
+                    except Exception as exc:
+                        LOG.warning("Worker cleanup issue: %s", str(exc)[:120])
         if updates:
             stats["written"] += sheets.flush(updates, args.dry_run)
     finally:
-        for retriever in retrievers:
-            retriever.close()
+        pass
     report = {"timestamp": datetime.now(timezone.utc).isoformat(), "sheet_id": sheets.id,
               "books": len(books), "missing_before": len(pending), "reuse_copied": copied,
               "selected": len(selected), "shard": shard, "shards": args.shards, "stats": dict(stats),
