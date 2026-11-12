@@ -277,7 +277,10 @@ def main():
     mapping = {}
     for group in unresolved:
         selected_row = sorted(group, key=preferred_order)[0]
-        mapping[canonical_url(selected_row.url)] = group
+        # Keep the original URL for the request: some catalogue pages carry
+        # essential product IDs in the query string. Canonical form is only
+        # the identity used to match Firecrawl's returned sourceURL.
+        mapping[canonical_url(selected_row.url)] = (group, selected_row.url)
     todo = list(mapping)
     count["batch_candidates"] = len(todo)
     done_urls = set()
@@ -313,7 +316,8 @@ def main():
                 if time.monotonic() > overall_deadline:
                     LOG.warning("Time budget reached; remaining pages will be retried next run")
                     break
-                urls = batch_todo[start:start+chunk_size]
+                keys = batch_todo[start:start+chunk_size]
+                urls = [mapping[key][1] for key in keys]
                 try:
                     job_id = batch.start(urls)
                     count["firecrawl_batch_jobs"] += 1
@@ -334,7 +338,7 @@ def main():
                     LOG.warning("Firecrawl batch start failed: %s", str(exc)[:180])
                     continue
 
-                chunk_keys = batch_url_keys(urls)
+                chunk_keys = set(keys)
                 def on_document(doc):
                     parsed = firecrawl_description(doc)
                     if not parsed:
@@ -345,7 +349,7 @@ def main():
                     # may differ by www, query parameters, or a trailing slash.
                     if normalized not in mapping or normalized in done_urls or normalized not in chunk_keys:
                         return
-                    if accept(mapping[normalized], Extraction(description, url, "firecrawl_batch")):
+                    if accept(mapping[normalized][0], Extraction(description, url, "firecrawl_batch")):
                         done_urls.add(normalized)
 
                 try:
