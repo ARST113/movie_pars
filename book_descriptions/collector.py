@@ -277,6 +277,30 @@ def group_shard(rows: list[BookRow], shard: int, shards: int, cycle: int, cap: i
     return group
 
 
+def balanced_selection(rows: list[BookRow], limit: int) -> list[BookRow]:
+    """Spread manual/first-run collection across sources instead of getting stuck on Book24."""
+    by_sheet: dict[str, list[BookRow]] = defaultdict(list)
+    for row in rows:
+        by_sheet[row.sheet_title].append(row)
+    priority = [
+        "Эксмо", "МИФ", "АСТ", "Альпина", "Питер", "Республика",
+        "Лабиринт", "Читай-город", "Литрес текст", "Литрес аудио", "Book24",
+    ]
+    sheets = sorted(by_sheet, key=lambda name: (priority.index(name) if name in priority else len(priority), name))
+    result: list[BookRow] = []
+    while len(result) < limit:
+        progressed = False
+        for name in sheets:
+            if by_sheet[name]:
+                result.append(by_sheet[name].pop(0))
+                progressed = True
+                if len(result) == limit:
+                    break
+        if not progressed:
+            break
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
@@ -311,7 +335,7 @@ def main() -> int:
     shard = args.shard if args.shard is not None else slot % args.shards
     if not 0 <= shard < args.shards:
         parser.error("--shard must be in 0..shards-1")
-    selected = left[:args.limit] if args.all else group_shard(left, shard, args.shards, slot // args.shards, args.limit)
+    selected = balanced_selection(left, args.limit) if args.all else group_shard(left, shard, args.shards, slot // args.shards, args.limit)
     LOG.info("Processing shard=%d/%d, selected=%d, total pending unmatched=%d", shard, args.shards, len(selected), len(left))
 
     extractor = Retriever(os.getenv("FIRECRAWL_API_KEY", ""),
