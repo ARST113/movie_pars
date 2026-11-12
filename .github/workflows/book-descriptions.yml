@@ -42,13 +42,13 @@ jobs:
       SPREADSHEET_ID: 1EhKpBf0VHW_kBVMgIwZv0_cE4-jtLhm9OYZMDGUqwpw
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
-      FIRECRAWL_BASE_URL: ${{ vars.FIRECRAWL_BASE_URL || 'https://api.firecrawl.dev/v2' }}
+      FIRECRAWL_BASE_URL: https://api.firecrawl.dev/v2
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'google/gemini-2.5-flash-lite' }}
       USE_BROWSER: 'true'
       MAX_BOOKS: '150'
       SHARDS: '64'
-      FIRECRAWL_MAX_REQUESTS: '220'
+      FIRECRAWL_MAX_REQUESTS: ${{ vars.FIRECRAWL_MAX_REQUESTS || '220' }}
       INPUT_LIMIT: ${{ inputs.limit || 150 }}
       INPUT_SHARD: ${{ inputs.shard }}
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
@@ -72,6 +72,11 @@ jobs:
             echo "Missing GOOGLE_SERVICE_ACCOUNT_JSON repository secret" >&2
             exit 2
           fi
+          if [ -z "$FIRECRAWL_API_KEY" ]; then
+            echo "Missing FIRECRAWL_API_KEY repository secret (hosted Firecrawl API)" >&2
+            exit 2
+          fi
+          echo "Hosted Firecrawl API selected: https://api.firecrawl.dev/v2"
       - name: Backfill descriptions
         shell: bash
         run: |
