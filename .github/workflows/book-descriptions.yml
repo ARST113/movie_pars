@@ -35,7 +35,7 @@ permissions:
 
 jobs:
   backfill:
-    if: ${{ vars.BOOK_DESCRIPTIONS_ENABLED == 'true' }}
+    if: ${{ vars.BOOK_DESCRIPTIONS_ENABLED != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     env:
@@ -48,7 +48,7 @@ jobs:
       USE_BROWSER: 'true'
       MAX_BOOKS: '150'
       SHARDS: '64'
-      FIRECRAWL_MAX_REQUESTS: ${{ vars.FIRECRAWL_MAX_REQUESTS || '220' }}
+      FIRECRAWL_MAX_REQUESTS: ${{ vars.FIRECRAWL_MAX_REQUESTS || '15' }}
       INPUT_LIMIT: ${{ inputs.limit || 150 }}
       INPUT_SHARD: ${{ inputs.shard }}
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
