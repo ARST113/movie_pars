@@ -1,7 +1,7 @@
 name: Backfill book descriptions
 
 on:
-  # Small live collection on workflow updates; scheduled runs continue separately.
+  # Live collection on workflow updates; scheduled runs continue separately.
   push:
     paths:
       - '.github/workflows/book-descriptions.yml'
@@ -11,9 +11,9 @@ on:
         description: "Maximum pages in this run"
         type: number
         required: false
-        default: 150
+        default: 40
       shard:
-        description: "Optional shard index 0..63, blank = automatic"
+        description: "Optional shard index 0..15, blank = automatic"
         type: string
         required: false
         default: ""
@@ -28,7 +28,7 @@ on:
         required: false
         default: false
   schedule:
-    - cron: "11 0,4,8,12,16,20 * * *"
+    - cron: "11,41 * * * *"
 
 concurrency:
   group: book-descriptions-google-sheet
@@ -50,10 +50,10 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'google/gemini-2.5-flash-lite' }}
       USE_BROWSER: 'true'
-      MAX_BOOKS: '150'
-      SHARDS: '64'
-      FIRECRAWL_MAX_REQUESTS: ${{ vars.FIRECRAWL_MAX_REQUESTS || '15' }}
-      INPUT_LIMIT: ${{ github.event_name == 'push' && 12 || inputs.limit || 150 }}
+      MAX_BOOKS: '40'
+      SHARDS: '16'
+      FIRECRAWL_MAX_REQUESTS: ${{ vars.FIRECRAWL_MAX_REQUESTS || '8' }}
+      INPUT_LIMIT: ${{ github.event_name == 'push' && 40 || inputs.limit || 40 }}
       INPUT_SHARD: ${{ inputs.shard }}
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
       INPUT_ALL: ${{ github.event_name == 'push' || inputs.all }}
