@@ -1,0 +1,53 @@
+name: Book descriptions - one-time connection check
+
+on:
+  push:
+    paths:
+      - '.github/workflows/book-descriptions-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  connection-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      SPREADSHEET_ID: '1EhKpBf0VHW_kBVMgIwZv0_cE4-jtLhm9OYZMDGUqwpw'
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+      FIRECRAWL_BASE_URL: https://api.firecrawl.dev/v2
+      FIRECRAWL_MAX_REQUESTS: '10'
+      USE_BROWSER: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate required secrets without logging values
+        shell: bash
+        run: |
+          test -n "$GOOGLE_SERVICE_ACCOUNT_JSON" || { echo "Missing GOOGLE_SERVICE_ACCOUNT_JSON"; exit 2; }
+          test -n "$FIRECRAWL_API_KEY" || { echo "Missing FIRECRAWL_API_KEY"; exit 2; }
+          python - <<'PY'
+          import json, os
+          key=json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON'])
+          assert key.get('type') == 'service_account'
+          assert key.get('client_email')
+          assert key.get('private_key')
+          print('Both required secrets are present, and Google JSON has expected fields.')
+          PY
+      - name: Install dependencies
+        run: python -m pip install -r book_descriptions/requirements.txt
+      - name: Unit tests
+        run: python -m unittest discover -s book_descriptions/tests -v
+      - name: Read-only Google Sheets and cloud Firecrawl check
+        run: python book_descriptions/collector.py --dry-run --limit 8 --all
+      - name: Publish report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: book-descriptions-connection-check-${{ github.run_id }}
+          path: book-descriptions-report.json
+          if-no-files-found: ignore
+          retention-days: 7
