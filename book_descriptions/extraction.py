@@ -26,6 +26,8 @@ BAD = (
     "access denied", "just a moment", "ddos-guard", "проверка браузера", "обнаружена подозрительная",
     "включите javascript", "отзывы покупателей", "вход в личный кабинет",
     "недостаточно информации", "не могу составить", "не удалось найти описание", "я не могу",
+    "отзывы читателей", "купить книгу по привлекательной цене",
+    "среди миллиона книг", "аннотация, 🔝", "купить книги и учебники",
 )
 SELECTORS = (
     '[itemprop="description"]', '[data-testid="book-description"]',
@@ -43,6 +45,8 @@ def normalise_text(value: str, max_chars: int = 2400) -> str:
     value = BeautifulSoup(value, "html.parser").get_text(" ", strip=True) if "<" in value and ">" in value else value
     value = unescape(value).replace("\xa0", " ")
     value = re.sub(r"\s+", " ", value).strip(' \"\u00ab\u00bb')
+    # Catalog banners may precede a real synopsis: preserve synopsis from the quoted book title.
+    value = re.sub(r"^Описание и характеристики\b.{0,120}?(?=«[^»]{2,120}»\s*[—:-])", "", value, flags=re.I).strip()
     return value[:max_chars].rsplit(" ", 1)[0].strip() if len(value) > max_chars else value
 
 
@@ -52,6 +56,9 @@ def plausible(value: str) -> bool:
     if len(value) < 85 or len(value.split()) < 12:
         return False
     if any(b in low for b in BAD):
+        return False
+    # SEO metadata includes a book title and ISBN but no substantive description.
+    if low.startswith("книга:") and any(t in low for t in ("аннотация", "купить", "отзывы", "isbn")):
         return False
     if sum(ch.isalpha() for ch in value) < len(value) * .55:
         return False
