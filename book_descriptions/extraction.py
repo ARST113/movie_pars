@@ -178,7 +178,7 @@ class Browser:
                 self._browser = self._playwright.chromium.launch(headless=True)
                 context = self._browser.new_context(user_agent=USER_AGENT, locale="ru-RU")
                 self._page = context.new_page()
-            response = self._page.goto(url, wait_until="domcontentloaded", timeout=22000)
+            response = self._page.goto(url, wait_until="domcontentloaded", timeout=12000)
             if response is None or response.status >= 400:
                 return None
             self._page.wait_for_timeout(700)
@@ -208,7 +208,7 @@ class Retriever:
     def http_get(self, url: str) -> str | None:
         for attempt in range(2):
             try:
-                resp = self.session.get(url, timeout=17, allow_redirects=True)
+                resp = self.session.get(url, timeout=9, allow_redirects=True)
                 if resp.status_code in (429, 500, 502, 503):
                     time.sleep(1.5 * (attempt + 1))
                     continue
@@ -226,7 +226,7 @@ class Retriever:
             resp = self.session.post(
                 self.firecrawl_base + "/scrape",
                 json={"url": url, "formats": ["html", "markdown"], "onlyMainContent": True, "maxAge": 0},
-                headers={"Authorization": "Bearer " + self.firecrawl_key}, timeout=75,
+                headers={"Authorization": "Bearer " + self.firecrawl_key}, timeout=30,
             )
             if not resp.ok:
                 LOG.warning("Firecrawl scrape HTTP %s on %s", resp.status_code, url)
@@ -247,7 +247,7 @@ class Retriever:
             resp = self.session.post(
                 self.firecrawl_base + "/search",
                 json={"query": query, "limit": 5},
-                headers={"Authorization": "Bearer " + self.firecrawl_key}, timeout=35,
+                headers={"Authorization": "Bearer " + self.firecrawl_key}, timeout=18,
             )
             if not resp.ok:
                 return []
