@@ -1,6 +1,10 @@
 name: Backfill book descriptions
 
 on:
+  # Small live collection on workflow updates; scheduled runs continue separately.
+  push:
+    paths:
+      - '.github/workflows/book-descriptions.yml'
   workflow_dispatch:
     inputs:
       limit:
@@ -49,10 +53,10 @@ jobs:
       MAX_BOOKS: '150'
       SHARDS: '64'
       FIRECRAWL_MAX_REQUESTS: ${{ vars.FIRECRAWL_MAX_REQUESTS || '15' }}
-      INPUT_LIMIT: ${{ inputs.limit || 150 }}
+      INPUT_LIMIT: ${{ github.event_name == 'push' && 12 || inputs.limit || 150 }}
       INPUT_SHARD: ${{ inputs.shard }}
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
-      INPUT_ALL: ${{ inputs.all }}
+      INPUT_ALL: ${{ github.event_name == 'push' || inputs.all }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
