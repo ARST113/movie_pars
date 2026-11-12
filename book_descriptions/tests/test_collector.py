@@ -42,6 +42,18 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(plausible(snippet))
         self.assertIsNone(from_html(html))
 
+    def test_ast_seo_description_rejected(self):
+        snippet = ('Суть вещи» Алексина Алена, Русский Corpus. Книги издательства АСТ. '
+                   'Аннотация, характеристики, фото обложки, информация, где купить книгу.')
+        self.assertFalse(plausible(snippet))
+        self.assertIsNone(from_html('<meta name="description" content="' + snippet + '">'))
+
+    def test_storefront_marketing_excerpt_rejected(self):
+        excerpt = ('Полистать От автора супербестселлера Внутри убийцы. '
+                   'Первый роман из нового цикла. Лейтенант полиции Нью-Йорка '
+                   'Эбби Маллен ведёт расследование необычного похищения.')
+        self.assertFalse(plausible(excerpt))
+
     def test_chitai_gorod_catalog_prefix_removed(self):
         text = ('Описание и характеристики Young Adult Игры на выживание Читайте и помогайте! '
                 '«Последний гамбит» — детективный роман о девушке, которой необходимо '
