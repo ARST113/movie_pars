@@ -1,0 +1,51 @@
+name: Firecrawl API key check
+
+on:
+  push:
+    paths:
+      - '.github/workflows/firecrawl-key-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Check Firecrawl authentication and credit balance (read-only)
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$FIRECRAWL_API_KEY" ]; then
+            echo "FIRECRAWL_API_KEY secret is missing or empty."
+            exit 2
+          fi
+          code=$(curl --silent --show-error --retry 2 --retry-delay 2 \
+            --output /tmp/firecrawl-response.json \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer $FIRECRAWL_API_KEY" \
+            https://api.firecrawl.dev/v2/team/credit-usage)
+          echo "Firecrawl HTTP status: $code"
+          python - "$code" <<'PY'
+          import json, sys
+          code = int(sys.argv[1])
+          try:
+              with open("/tmp/firecrawl-response.json", encoding="utf-8") as f:
+                  body = json.load(f)
+          except Exception:
+              print("Firecrawl returned a non-JSON response.")
+              raise SystemExit(1)
+          if code != 200 or not body.get("success"):
+              print("Authentication/credit endpoint did not succeed.")
+              print("API error:", str(body.get("error", "unknown"))[:300])
+              raise SystemExit(1)
+          data = body.get("data") or {}
+          print("API key authentication: OK")
+          print("Remaining credits:", data.get("remainingCredits", "not reported"))
+          print("Plan credits:", data.get("planCredits", "not reported"))
+          print("Billing period start:", data.get("billingPeriodStart", "not reported"))
+          print("Billing period end:", data.get("billingPeriodEnd", "not reported"))
+          PY
