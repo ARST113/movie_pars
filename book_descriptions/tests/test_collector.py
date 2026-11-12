@@ -1,0 +1,59 @@
+import os
+import sys
+import unittest
+from unittest.mock import Mock
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from collector import BookRow, group_shard, is_product_row, key_for, pick_columns, reuse, letter
+from extraction import from_html, from_markdown, plausible, trusted_url
+
+
+class CollectorTests(unittest.TestCase):
+    def test_pick_column_variants(self):
+        self.assertEqual(pick_columns(['Title', 'Описание книги (по издателю)', 'Источник описания']), (1, 2))
+        self.assertEqual(pick_columns(['Title', 'Сюжетная аннотация (по карточке книги)', 'Источник аннотации']), (1, 2))
+        self.assertEqual(pick_columns(['Title', 'Описание / проверка жанра', 'Источник классификации']), (None, None))
+
+    def test_key_author_permutation(self):
+        self.assertEqual(key_for('Безмолвный пациент', 'Михаэлидес Алекс'), key_for('Безмолвный пациент', 'Алекс Михаэлидес'))
+
+    def test_book_row_not_placeholders(self):
+        self.assertFalse(is_product_row(['—', 'Рейтинг не подтверждён', '', '', '', '', '', '', 'https://www.ozon.ru/category/knigi-16500/']))
+        self.assertTrue(is_product_row(['1', 'Пламя одержимости', 'Майк Омер', '', '', '', '', '', 'https://book24.ru/product/plamya-oderzhimosti-6769433/']))
+
+    def test_security_urls(self):
+        self.assertTrue(trusted_url('https://www.labirint.ru/books/200/'))
+        self.assertFalse(trusted_url('http://labirint.ru/books/200/'))
+        self.assertFalse(trusted_url('https://labirint.ru.evil.com/books/200/'))
+
+    def test_schema_org(self):
+        html = '''<script type="application/ld+json">{"@type":"Book","description":"Первый герой попадает в странный город, где неожиданно пропадают люди. Вместе со спутницей он ищет виновного, разгадывает тайну и противостоит скрытой угрозе."}</script>'''
+        self.assertIn('Первый герой', from_html(html))
+
+    def test_generic_meta_rejected(self):
+        html = '<meta name="description" content="Купить книгу в интернет-магазине книг со скидкой! Доставка по всей России, отзывы покупателей, большой ассортимент изданий и удобный сервис.">'
+        self.assertIsNone(from_html(html))
+
+    def test_markdown_section(self):
+        markdown = '# Название\n## О книге\nГероиня оказывается вдали от дома, вынуждена искать своего пропавшего брата и исследовать тайны старого королевства. На её пути встречаются друзья, враги и неожиданное предательство.\n## Характеристики\nISBN 123'
+        self.assertIn('королевства', from_markdown(markdown))
+
+    def test_underlined_eksmo_description(self):
+        md = 'Люди за спиной\n==================\nО книге Читать фрагмент\n------------------\nАнастасия Каменская ведёт расследование исчезновения женщины, о которой заказчик почти ничего не знает. По мере поисков детектив обнаруживает поддельные документы и сложную историю с несколькими смертями.\n\nЧитать полностью\n'
+        self.assertIn('Каменская', from_markdown(md))
+
+    def test_shards(self):
+        rows = [BookRow('Эксмо', 10, n, ['1', f'Книга {n}', 'Тестов Автор', '', '', '', '', '', f'https://eksmo.ru/book/a-{n}/'], 17, 18) for n in range(2, 200)]
+        a = group_shard(rows, 0, 8, 0, 10000)
+        b = group_shard(rows, 1, 8, 0, 10000)
+        self.assertEqual(set(map(id, a)) & set(map(id, b)), set())
+        self.assertTrue(a)
+
+    def test_columns_letter(self):
+        self.assertEqual(letter(0), 'A')
+        self.assertEqual(letter(18), 'S')
+        self.assertEqual(letter(26), 'AA')
+
+
+if __name__ == '__main__':
+    unittest.main()
