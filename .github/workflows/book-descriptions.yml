@@ -1,9 +1,6 @@
 name: Backfill book descriptions
 
 on:
-  push:
-    paths:
-      - '.github/workflows/book-descriptions.yml'
   workflow_dispatch:
     inputs:
       limit:
@@ -16,8 +13,6 @@ on:
         required: false
         type: boolean
         default: false
-  schedule:
-    - cron: '21 */4 * * *'
 
 concurrency:
   group: book-descriptions-google-sheet
