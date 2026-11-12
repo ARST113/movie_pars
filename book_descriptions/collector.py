@@ -14,6 +14,8 @@ import re
 import time
 import unicodedata
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock, local
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -304,8 +306,8 @@ def balanced_selection(rows: list[BookRow], limit: int) -> list[BookRow]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--limit", type=int, default=int(os.getenv("MAX_BOOKS", "150")))
-    parser.add_argument("--shards", type=int, default=int(os.getenv("SHARDS", "64")))
+    parser.add_argument("--limit", type=int, default=int(os.getenv("MAX_BOOKS", "750")))
+    parser.add_argument("--shards", type=int, default=int(os.getenv("SHARDS", "16")))
     parser.add_argument("--shard", type=int, default=None)
     parser.add_argument("--all", action="store_true", help="Run across all pending rows (bounded by --limit)")
     args = parser.parse_args()
@@ -323,10 +325,12 @@ def main() -> int:
     LOG.info("Found books=%d, missing descriptions=%d, known unique descriptions=%d", len(books), len(pending), len(existing))
 
     # Deduplicated descriptions are the cheapest and most reliable; write them first.
-    pending_updates = [(row, existing[row.key]) for row in pending if row.key in existing]
     copied = 0
-    for offset in range(0, len(pending_updates), 40):
-        copied += sheets.flush(pending_updates[offset:offset+40], args.dry_run)
+    # Run global reuse only once across the parallel shard matrix.
+    if args.shard is None or args.shard == 0:
+        pending_updates = [(row, existing[row.key]) for row in pending if row.key in existing]
+        for offset in range(0, len(pending_updates), 40):
+            copied += sheets.flush(pending_updates[offset:offset+40], args.dry_run)
     LOG.info("Copied between matched books=%d (dry-run=%s)", copied, args.dry_run)
 
     left = [row for row in pending if not row.key or row.key not in existing]
@@ -338,41 +342,83 @@ def main() -> int:
     selected = balanced_selection(left, args.limit) if args.all else group_shard(left, shard, args.shards, slot // args.shards, args.limit)
     LOG.info("Processing shard=%d/%d, selected=%d, total pending unmatched=%d", shard, args.shards, len(selected), len(left))
 
-    extractor = Retriever(os.getenv("FIRECRAWL_API_KEY", ""),
-                          os.getenv("FIRECRAWL_BASE_URL", "https://api.firecrawl.dev/v2"),
-                          use_browser=os.getenv("USE_BROWSER", "true").lower() in ("1", "true", "yes"))
+    # All shard items are attempted in one run; each book is processed once even
+    # when the same title appears in several store rankings.
+    groups: dict[tuple[str, str], list[BookRow]] = defaultdict(list)
+    for row in selected:
+        group_key = row.key or (norm(row.title), norm(row.url))
+        groups[group_key].append(row)
+    LOG.info("Unique books in shard=%d (rows=%d)", len(groups), len(selected))
+
+    publisher_rank = {
+        "eksmo.ru": 0, "ast.ru": 1, "mann-ivanov-ferber.ru": 2,
+        "alpinabook.ru": 3, "rosman.ru": 4, "piter.com": 5,
+        "litres.ru": 6, "chitai-gorod.ru": 7, "labirint.ru": 8,
+        "book24.ru": 9,
+    }
+    def source_rank(book: BookRow) -> tuple[int, int]:
+        domain = (urlparse(book.url).hostname or "").removeprefix("www.")
+        return publisher_rank.get(domain, 10), len(book.url)
+
+    local_state = local()
+    retrievers: list[Retriever] = []
+    guard = Lock()
     ai_key = os.getenv("OPENROUTER_API_KEY", "")
     ai_model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash-lite")
-    local_cache: dict[tuple[str, str], Extraction] = {}
+    workers = max(1, min(12, int(os.getenv("WORKERS", "6"))))
     updates: list[tuple[BookRow, Extraction]] = []
     stats = Counter()
+
+    def process_book(group: list[BookRow]) -> tuple[list[BookRow], Extraction | None]:
+        if not hasattr(local_state, "retriever"):
+            local_state.retriever = Retriever(
+                os.getenv("FIRECRAWL_API_KEY", ""),
+                os.getenv("FIRECRAWL_BASE_URL", "https://api.firecrawl.dev/v2"),
+                use_browser=os.getenv("USE_BROWSER", "false").lower() in ("1", "true", "yes"),
+            )
+            with guard:
+                retrievers.append(local_state.retriever)
+        retriever = local_state.retriever
+        candidates = sorted(group, key=source_rank)
+        found = None
+        for book in candidates[:3]:
+            found = retriever.lookup(book.url, book.title, book.author)
+            if found:
+                break
+        if not found:
+            return group, None
+        best = candidates[0]
+        description = describe_with_llm(found.description, best.title, best.author, ai_key, ai_model)
+        if not description or not plausible(description):
+            return group, None
+        return group, Extraction(description, found.source_url, found.method)
+
     try:
-        for row in selected:
-            if row.key in local_cache:
-                found = local_cache[row.key]
-                updates.append((row, found))
-                stats["reused_new"] += 1
-                continue
-            found = extractor.lookup(row.url, row.title, row.author)
-            if not found:
-                stats["unavailable"] += 1
-                continue
-            description = describe_with_llm(found.description, row.title, row.author, ai_key, ai_model)
-            if not description or not plausible(description):
-                stats["invalid"] += 1
-                continue
-            processed = Extraction(description, found.source_url, found.method)
-            updates.append((row, processed))
-            if row.key:
-                local_cache[row.key] = processed
-            stats["scraped_" + found.method] += 1
-            if len(updates) >= 40:
-                stats["written"] += sheets.flush(updates, args.dry_run)
-                updates.clear()
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            pending_jobs = [pool.submit(process_book, group) for group in groups.values()]
+            for finished, future in enumerate(as_completed(pending_jobs), 1):
+                try:
+                    rows, result = future.result()
+                except Exception as exc:
+                    stats["errors"] += 1
+                    LOG.warning("Book task failed: %s", str(exc)[:160])
+                    continue
+                if result is None:
+                    stats["unavailable"] += len(rows)
+                else:
+                    stats["scraped_" + result.method] += 1
+                    updates.extend((row, result) for row in rows)
+                if len(updates) >= 40:
+                    stats["written"] += sheets.flush(updates, args.dry_run)
+                    updates.clear()
+                if finished % 25 == 0:
+                    LOG.info("Shard progress: %d/%d unique books, written=%d unavailable=%d",
+                             finished, len(pending_jobs), stats["written"], stats["unavailable"])
         if updates:
             stats["written"] += sheets.flush(updates, args.dry_run)
     finally:
-        extractor.close()
+        for retriever in retrievers:
+            retriever.close()
     report = {"timestamp": datetime.now(timezone.utc).isoformat(), "sheet_id": sheets.id,
               "books": len(books), "missing_before": len(pending), "reuse_copied": copied,
               "selected": len(selected), "shard": shard, "shards": args.shards, "stats": dict(stats),
