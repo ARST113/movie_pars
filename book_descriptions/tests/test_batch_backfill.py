@@ -5,7 +5,9 @@ import unittest
 from unittest.mock import Mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from batch_backfill import FirecrawlBatch, canonical_url, firecrawl_description
+from batch_backfill import (FirecrawlBatch, batch_url_keys, canonical_url,
+                            firecrawl_description, per_shard_credit_budget)
+from collector import Sheets
 
 
 class FirecrawlBatchTests(unittest.TestCase):
@@ -46,6 +48,28 @@ class FirecrawlBatchTests(unittest.TestCase):
                                            'next': 'https://evil.example/token'})
         with self.assertRaises(RuntimeError):
             batch.poll('123', lambda _: None, float('inf'))
+
+    def test_batch_url_keys_normalize_both_sides(self):
+        raw = 'https://www.labirint.ru/books/50/?utm_source=ranking'
+        self.assertIn('https://labirint.ru/books/50', batch_url_keys([raw]))
+        self.assertEqual(canonical_url(raw), 'https://labirint.ru/books/50')
+
+    def test_firecrawl_credit_budget_preserves_reserve(self):
+        self.assertEqual(per_shard_credit_budget(1025, 4, reserve=25, max_per_shard=250), 250)
+        self.assertEqual(per_shard_credit_budget(425, 4, reserve=25, max_per_shard=250), 100)
+        self.assertEqual(per_shard_credit_budget(25, 4, reserve=25, max_per_shard=250), 0)
+        self.assertEqual(per_shard_credit_budget(1000, 4, reserve=25, max_per_shard=250), 243)
+
+    def test_remaining_credits_endpoint(self):
+        batch = FirecrawlBatch('test')
+        batch.request = Mock(return_value={'success': True, 'data': {'remainingCredits': 1025}})
+        self.assertEqual(batch.remaining_credits(), 1025)
+        batch.request.assert_called_once()
+
+    def test_sheets_retries_transient_socket_errors(self):
+        self.assertTrue(Sheets._transient(OSError('SSL EOF')))
+        self.assertTrue(Sheets._transient(TimeoutError('timed out')))
+        self.assertFalse(Sheets._transient(ValueError('bad data')))
 
 
 if __name__ == '__main__':
