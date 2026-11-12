@@ -1,29 +1,18 @@
 name: Backfill book descriptions
 
 on:
-  # Live collection on workflow updates; scheduled runs continue separately.
   push:
     paths:
       - '.github/workflows/book-descriptions.yml'
   workflow_dispatch:
     inputs:
       limit:
-        description: "Maximum pages in this run"
+        description: "Maximum unique book groups per shard (default covers the entire sheet)"
         type: number
         required: false
-        default: 40
-      shard:
-        description: "Optional shard index 0..15, blank = automatic"
-        type: string
-        required: false
-        default: ""
+        default: 800
       dry_run:
-        description: "Preview only; do not write to Sheets"
-        type: boolean
-        required: false
-        default: false
-      all:
-        description: "Ignore shard for this run (still respects limit)"
+        description: "Read-only inspection, no Google Sheets updates"
         type: boolean
         required: false
         default: false
@@ -40,23 +29,29 @@ permissions:
 jobs:
   backfill:
     if: ${{ vars.BOOK_DESCRIPTIONS_ENABLED != 'false' }}
+    name: Shard ${{ matrix.shard }} of 16
     runs-on: ubuntu-24.04
-    timeout-minutes: 110
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     env:
-      SPREADSHEET_ID: 1EhKpBf0VHW_kBVMgIwZv0_cE4-jtLhm9OYZMDGUqwpw
+      SPREADSHEET_ID: '1EhKpBf0VHW_kBVMgIwZv0_cE4-jtLhm9OYZMDGUqwpw'
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
       FIRECRAWL_BASE_URL: https://api.firecrawl.dev/v2
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'google/gemini-2.5-flash-lite' }}
       USE_BROWSER: 'true'
-      MAX_BOOKS: '40'
+      WORKERS: '6'
+      MAX_BOOKS: '800'
       SHARDS: '16'
-      FIRECRAWL_MAX_REQUESTS: ${{ vars.FIRECRAWL_MAX_REQUESTS || '8' }}
-      INPUT_LIMIT: ${{ github.event_name == 'push' && 40 || inputs.limit || 40 }}
-      INPUT_SHARD: ${{ inputs.shard }}
+      FIRECRAWL_MAX_REQUESTS: '0'
+      INPUT_LIMIT: ${{ inputs.limit || 800 }}
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
-      INPUT_ALL: ${{ github.event_name == 'push' || inputs.all }}
+      INPUT_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -64,36 +59,28 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: book_descriptions/requirements.txt
-      - name: Install Python dependencies and Chromium
+      - name: Install dependencies and Chromium
         run: |
           pip install -r book_descriptions/requirements.txt
           python -m playwright install --with-deps chromium
-      - name: Unit tests
+      - name: Run tests
         run: python -m unittest discover -s book_descriptions/tests -v
-      - name: Check credentials are configured
-        run: |
-          if [ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
-            echo "Missing GOOGLE_SERVICE_ACCOUNT_JSON repository secret" >&2
-            exit 2
-          fi
-          if [ -z "$FIRECRAWL_API_KEY" ]; then
-            echo "Missing FIRECRAWL_API_KEY repository secret (hosted Firecrawl API)" >&2
-            exit 2
-          fi
-          echo "Hosted Firecrawl API selected: https://api.firecrawl.dev/v2"
-      - name: Backfill descriptions
+      - name: Check secrets
         shell: bash
         run: |
-          ARGS=(--limit "$INPUT_LIMIT")
-          if [ -n "$INPUT_SHARD" ]; then ARGS+=(--shard "$INPUT_SHARD"); fi
+          test -n "$GOOGLE_SERVICE_ACCOUNT_JSON" || { echo "Missing Google service account secret" >&2; exit 2; }
+          test -n "$FIRECRAWL_API_KEY" || { echo "Missing Firecrawl API secret" >&2; exit 2; }
+      - name: Collect descriptions and update Google Sheets
+        shell: bash
+        run: |
+          ARGS=(--limit "$INPUT_LIMIT" --shards "$SHARDS" --shard "$INPUT_SHARD")
           if [ "$INPUT_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
-          if [ "$INPUT_ALL" = "true" ]; then ARGS+=(--all); fi
           python book_descriptions/collector.py "${ARGS[@]}"
-      - name: Save run report
+      - name: Publish shard report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: book-descriptions-report-${{ github.run_id }}
+          name: book-descriptions-${{ github.run_id }}-shard-${{ matrix.shard }}
           path: book-descriptions-report.json
           if-no-files-found: ignore
           retention-days: 14
