@@ -1,4 +1,4 @@
-name: Diagnose Firecrawl rejected book documents
+name: Diagnose Firecrawl batch failures
 on:
   push:
     paths:
@@ -9,82 +9,25 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 30
     env:
-      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+      FIRECRAWL_API_KEY: \${{ secrets.FIRECRAWL_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install parsing dependencies
-        run: python -m pip install -r book_descriptions/requirements.txt
-      - name: Diagnose already completed batches (GET only; no scraping)
-        shell: bash
+      - name: Install HTTP, parsing and Chromium dependencies
         run: |
-          python - <<'PY'
-          import os,sys,re
-          from collections import Counter
-          from urllib.parse import urlsplit
-          import requests
-          sys.path.insert(0, 'book_descriptions')
-          from extraction import from_html,from_markdown,plausible,trusted_url,normalise_text,strip_reader_controls,BAD
-          from batch_backfill import canonical_url,firecrawl_description
-          api='https://api.firecrawl.dev/v2/batch/scrape/'
-          ids=['01a1d3a2-8b27-77ed-98c7-f3acc5577d49','01a1d3a2-8b7f-7688-84e0-f3f513570c38']
-          session=requests.Session()
-          session.headers['Authorization']='Bearer '+os.environ['FIRECRAWL_API_KEY']
-          counts=Counter()
-          samples=Counter()
-          for batch_id in ids:
-              next_url=api+batch_id
-              for page_num in range(12):
-                  response=session.get(next_url,timeout=45)
-                  print('Batch',batch_id,'page',page_num,'HTTP',response.status_code)
-                  response.raise_for_status()
-                  data=response.json()
-                  if page_num==0:
-                      print('Provider:',data.get('status'),'completed',data.get('completed'),'total',data.get('total'))
-                  docs=data.get('data') or []
-                  for doc in docs:
-                      md=doc.get('metadata') or {}
-                      url=md.get('sourceURL') or md.get('url') or ''
-                      raw_html=doc.get('html') or ''
-                      markdown=doc.get('markdown') or ''
-                      code=md.get('statusCode')
-                      if not trusted_url(url):
-                          reason='missing_or_untrusted_source_url'
-                      elif code and int(code)>=400:
-                          reason='http_error'
-                      else:
-                          html_desc=from_html(raw_html)
-                          md_desc=from_markdown(markdown)
-                          if html_desc:
-                              reason='accepted_html'
-                          elif md_desc:
-                              reason='accepted_markdown'
-                          else:
-                              reason='no_valid_description'
-                      counts[reason]+=1
-                      if not reason.startswith('accepted') and samples[reason]<8:
-                          samples[reason]+=1
-                          heads=re.findall(r'(?m)^#{1,5}[^\n]{0,100}',markdown)[:7]
-                          heading=re.search(r'(?im)^#{1,4}[ ]*Аннотация[^\n]*\n',markdown)
-                          after=markdown[heading.end():heading.end()+600] if heading else ''
-                          meta_desc=md.get('description') or md.get('og:description') or ''
-                          section=re.split(r'\n\s*(?:#{1,4}\s|\*\*[^*]+\*\*|Отзывы|Похожие книги)',markdown[heading.end():],maxsplit=1)[0] if heading else ''
-                          section=re.sub(r'\[([^]]+)\]\([^)]*\)',r'\1',section)
-                          clean=strip_reader_controls(section)
-                          hits=[bad for bad in BAD if bad in clean.lower()]
-                          print('REJECT',reason,'path',urlsplit(url).path[:80],
-                                'status',code,'section_chars',len(section),'clean_len',len(clean),
-                                'word_count',len(clean.split()),'bad_hits',hits,
-                                'clean_start',clean[:260],'clean_end',clean[-320:],
-                                'meta_description',str(meta_desc)[:150])
-                  next_url=data.get('next')
-                  if not next_url:
-                      break
-                  if not next_url.startswith(api):
-                      raise RuntimeError('Unexpected pagination host')
-          print('REASON_COUNTS',dict(counts))
-          PY
+          python -m pip install -r book_descriptions/requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Retrieve failed URLs and compare HTTP with Chromium
+        run: python -u book_descriptions/diagnose_firecrawl_failures.py
+      - name: Upload full diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firecrawl-run-17-diagnostic
+          path: firecrawl-diagnostic-report.json
+          if-no-files-found: warn
+          retention-days: 30
