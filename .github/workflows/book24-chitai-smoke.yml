@@ -43,6 +43,17 @@ jobs:
               row[15] = item_id
               book = BookRow('Book24', 185838591, i, row, 16, 17)
               alternate = chitai_alternative(book)
+              from extraction import from_html, USER_AGENT
+              import requests
+              for host_url in [alternate, alternate.replace('www.chitai-gorod.ru', 'chitai-gorod.ru')]:
+                  try:
+                      response = requests.get(host_url, timeout=12, headers={'User-Agent': USER_AGENT})
+                      text = from_html(response.text or '')
+                      print(f'DIAG status={response.status_code} body={len(response.content)} '
+                            f'path={host_url} extracted={len(text) if text else 0} '
+                            f'title_start={response.text.find("<title>")}', flush=True)
+                  except Exception as exc:
+                      print(f'DIAG ERROR {host_url}: {str(exc)[:140]}', flush=True)
               _, result = direct_fetch([book])
               success = bool(result and len(result.description) > 80)
               print(f'CASE {i}: {title} alternate={alternate} success={success} '
