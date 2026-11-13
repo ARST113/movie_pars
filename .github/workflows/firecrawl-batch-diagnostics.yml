@@ -1,4 +1,4 @@
-name: Diagnose Firecrawl batch failures
+name: Diagnose Firecrawl batch failures # verify refreshed Firecrawl key
 on:
   push:
     paths:
