@@ -43,8 +43,8 @@ jobs:
           sudo apt-get install -y cloudflare-warp
           sudo systemctl enable --now warp-svc
           warp-cli --accept-tos registration new
-          warp-cli mode warp+doh
-          warp-cli connect
+          warp-cli --accept-tos mode warp+doh
+          warp-cli --accept-tos connect
 
           connected=false
           for attempt in $(seq 1 45); do
@@ -58,9 +58,9 @@ jobs:
 
           if [ "$connected" != true ]; then
             echo "MASQUE/default connection did not reach warp=on; trying WireGuard."
-            warp-cli disconnect || true
-            warp-cli tunnel protocol set WireGuard
-            warp-cli connect
+            warp-cli --accept-tos disconnect || true
+            warp-cli --accept-tos tunnel protocol set WireGuard
+            warp-cli --accept-tos connect
             for attempt in $(seq 1 45); do
               trace="$(curl -fsS --max-time 8 https://www.cloudflare.com/cdn-cgi/trace/ || true)"
               if printf '%s\n' "$trace" | grep -qx 'warp=on'; then
@@ -72,7 +72,7 @@ jobs:
           fi
 
           warp-cli --version
-          warp-cli status
+          warp-cli --accept-tos status
           if [ "$connected" != true ]; then
             echo "Cloudflare WARP tunnel did not become active."
             exit 1
@@ -89,7 +89,7 @@ jobs:
         if: always()
         run: |
           if command -v warp-cli >/dev/null 2>&1; then
-            sudo warp-cli disconnect || true
+            sudo warp-cli --accept-tos disconnect || true
             sudo systemctl stop warp-svc || true
           fi
 
