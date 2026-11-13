@@ -198,6 +198,20 @@ class FirecrawlBatch:
         self._deliver_pages(status, on_page)
         return "partial"
 
+    def errors(self, job_id: str) -> dict:
+        """Provider failures (DNS/timeout/robots) for a completed batch."""
+        try:
+            result = self.request("GET", self.base + "/" + job_id + "/errors")
+            errors = result.get("errors") or []
+            blocked = result.get("robotsBlocked") or []
+            counts = Counter(str(e.get("error", "unknown"))[:100] for e in errors if isinstance(e, dict))
+            LOG.info("Firecrawl batch %s: %d failed URLs, %d robots-blocked, top errors=%s",
+                     job_id, len(errors), len(blocked), counts.most_common(5))
+            return {"failed": len(errors), "robots_blocked": len(blocked)}
+        except Exception as exc:
+            LOG.warning("Could not read Firecrawl batch errors for %s: %s", job_id, str(exc)[:150])
+            return {}
+
     def close(self):
         self.session.close()
 
@@ -318,9 +332,11 @@ def main():
     mapping = {}
     for group in unresolved:
         selected_row = sorted(group, key=preferred_order)[0]
-        # Firecrawl should attempt the alternative bookstore too: GitHub HTTP
-        # often cannot reach the Book24 product page at all.
-        candidate_url = chitai_alternative(selected_row) or selected_row.url
+        # Prefer the real, source-verified product URL. Earlier runs spent
+        # hundreds of credits on constructed Chitai-gorod alternatives and got
+        # almost no usable descriptions. Keep that alternative for free direct
+        # attempts, but NEVER make it the primary paid batch target.
+        candidate_url = selected_row.url
         mapping[canonical_url(candidate_url)] = (group, candidate_url)
     current_rotation = int(time.time() // (4 * 3600))
     todo = rotated_candidates(list(mapping), args.shard, current_rotation)
@@ -401,6 +417,10 @@ def main():
                     LOG.warning("Firecrawl batch polling failed for %s: %s", job_id, str(exc)[:180])
                     break
                 commit(True)
+                if state == "completed":
+                    failure_summary = batch.errors(job_id)
+                    count["firecrawl_failed_urls"] += failure_summary.get("failed", 0)
+                    count["firecrawl_robots_blocked"] += failure_summary.get("robots_blocked", 0)
                 LOG.info("Batch %d/%d status=%s accepted=%d total_written=%d",
                          start//chunk_size+1, (len(batch_todo)+chunk_size-1)//chunk_size,
                          state, len(done_urls), count["written"])
