@@ -6,11 +6,38 @@ from unittest.mock import Mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from batch_backfill import (FirecrawlBatch, batch_url_keys, canonical_url,
-                            firecrawl_description, per_shard_credit_budget)
-from collector import Sheets
+                            firecrawl_description, per_shard_credit_budget,
+                            chitai_alternative, rotated_candidates)
+from collector import Sheets, BookRow
 
 
 class FirecrawlBatchTests(unittest.TestCase):
+    def test_book24_product_sku_maps_to_chitai_gorod(self):
+        row = [""] * 18
+        row[1] = "Элегия смерти"
+        row[2] = "Хаохуэй Чжоу"
+        row[8] = "https://book24.ru/product/elegiya-smerti-6757550/"
+        row[15] = "2990861"
+        book = BookRow("Book24", 1, 20, row, 16, 17)
+        self.assertEqual(chitai_alternative(book),
+                         "https://www.chitai-gorod.ru/product/elegiya-smerti-2990861")
+        row[15] = "not-a-sku"
+        self.assertIsNone(chitai_alternative(book))
+
+    def test_book24_non_matching_store_has_no_alternative(self):
+        row = [""] * 18
+        row[8] = "https://labirint.ru/books/123456/"
+        row[15] = "2990861"
+        self.assertIsNone(chitai_alternative(BookRow("Лабиринт", 1, 3, row, 17, 18)))
+
+    def test_credit_batch_rotation_changes_attempts(self):
+        urls = [f"https://book24.ru/product/item-{n}/" for n in range(100)]
+        one = rotated_candidates(urls, 2, 4567)
+        two = rotated_candidates(urls, 2, 4568)
+        self.assertEqual(set(one), set(two))
+        self.assertNotEqual(one[:25], two[:25])
+        self.assertEqual(one, rotated_candidates(urls, 2, 4567))
+
     def test_canonical_url(self):
         self.assertEqual(canonical_url('https://www.labirint.ru/books/50/?utm=1'),
                          'https://labirint.ru/books/50')
