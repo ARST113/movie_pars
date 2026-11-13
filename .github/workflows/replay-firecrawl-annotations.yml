@@ -23,7 +23,7 @@ jobs:
         run: python -m pip install -r book_descriptions/requirements.txt
       - name: Run parsing regressions
         run: python -m unittest discover -s book_descriptions/tests -v
-      - name: Recover existing cached book descriptions (GET only)
+      - name: Recover Labirint descriptions after both leading and trailing controls are removed (GET only)
         run: |
           python -u book_descriptions/replay_batch_descriptions.py \
             --job 01a1d3a2-8b27-77ed-98c7-f3acc5577d49 \

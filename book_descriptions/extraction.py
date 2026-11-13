@@ -60,10 +60,17 @@ def strip_reader_controls(value: str) -> str:
     Labirint prefixes valid descriptions with "Полистать Содержание".
     """
     text = normalise_text(value)
-    return re.sub(
+    text = re.sub(
         r"^(?:(?:Полистать|Содержание|Читать фрагмент|Читать отрывок)(?:\s+|$))+",
         "", text, flags=re.I,
     ).strip()
+    # These controls can also appear AFTER the publisher's annotation,
+    # before the next markdown heading. Remove only the final UI tokens.
+    text = re.sub(
+        r"(?:\s*(?:Свернуть|!?Развернуть|Полистать|Содержание))+\s*$",
+        "", text, flags=re.I,
+    )
+    return text.strip()
 
 
 def plausible(value: str) -> bool:

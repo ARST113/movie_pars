@@ -73,10 +73,26 @@ class CollectorTests(unittest.TestCase):
               "которая отправляется жить к заколдованному чудищу и открывает "
               "тайну его превращения. Девушке предстоит сделать выбор и спасти "
               "того, кого она полюбила, преодолев страх.\n"
+              "Полистать Содержание\n"
               "## Характеристики\nISBN 9785000000001")
         result = from_markdown(md)
         self.assertIsNotNone(result)
         self.assertTrue(result.startswith("«Аленький цветочек»"))
+        self.assertNotIn("Полистать", result)
+        self.assertNotIn("Содержание", result)
+
+    def test_labirint_collapsed_preview_controls_at_end(self):
+        md = ("## Аннотация\nПолистать\nСодержание\n"
+              "Героиня расследует загадочные исчезновения людей в городе, "
+              "где каждый дом хранит собственные тайны. Собирая свидетельства "
+              "и разгадывая письма, она обнаруживает, что за преступлениями "
+              "стоит тайное общество, связанное с её прошлым.\n"
+              "Свернуть !Развернуть Полистать Содержание\n"
+              "## Характеристики\nОтзывы и цена")
+        result = from_markdown(md)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.startswith("Героиня расследует"))
+        self.assertNotIn("Свернуть", result)
         self.assertNotIn("Полистать", result)
         self.assertNotIn("Содержание", result)
 
