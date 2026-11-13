@@ -327,8 +327,9 @@ def main():
                 LOG.info("Direct phase %d/%d, unresolved=%d, written=%d", n, len(grouped),len(unresolved),count["written"])
     commit(True)
 
-    # Firecrawl batch API is the paid fallback. Read the live balance and
-    # divide an explicit credit budget across shards, preserving a shared reserve.
+    # Firecrawl is the paid fallback. API calls are submitted in small
+    # sequential batches. The provider decides whether account credits suffice;
+    # there is deliberately no locally imposed credit quota or reserve.
     mapping = {}
     for group in unresolved:
         selected_row = sorted(group, key=preferred_order)[0]
@@ -347,28 +348,12 @@ def main():
     if cloud_key and todo:
         batch = FirecrawlBatch(cloud_key)
         try:
-            try:
-                remaining_credits = batch.remaining_credits()
-                reserve = max(0, int(os.getenv("FIRECRAWL_RESERVE_CREDITS", "25")))
-                max_per_shard = max(0, int(os.getenv("FIRECRAWL_MAX_URLS_PER_SHARD", "250")))
-                credit_budget = per_shard_credit_budget(
-                    remaining_credits, args.shards, reserve, max_per_shard
-                )
-                count["firecrawl_credits_at_start"] = remaining_credits
-                count["firecrawl_budget_urls"] = credit_budget
-                LOG.info("Firecrawl credits=%d reserve=%d shard_budget=%d/%d",
-                         remaining_credits, reserve, credit_budget, args.shards)
-            except Exception as exc:
-                credit_budget = 0
-                count["firecrawl_credit_check_failed"] += 1
-                LOG.warning("Could not verify Firecrawl balance; paid fallback disabled safely: %s",
-                            str(exc)[:180])
-
-            batch_todo = todo[:credit_budget]
-            count["deferred_by_credit_budget"] = len(todo) - len(batch_todo)
-            if count["deferred_by_credit_budget"]:
-                LOG.info("Deferring %d Firecrawl candidates to later runs to protect credits",
-                         count["deferred_by_credit_budget"])
+            # Process every unresolved URL, at the provider's permitted rate.
+            # One batch per shard at a time; a 429 is retried with Retry-After.
+            batch_todo = todo
+            count["batch_candidates"] = len(batch_todo)
+            LOG.info("Firecrawl fallback: %d URLs in sequential batches of %d; credit limits are provider-managed",
+                     len(batch_todo), chunk_size)
 
             for start in range(0, len(batch_todo), chunk_size):
                 if time.monotonic() > overall_deadline:
@@ -430,8 +415,7 @@ def main():
             batch.close()
             commit(True)
     else:
-        count["deferred_by_credit_budget"] = len(todo)
-        LOG.info("Skipping Firecrawl batch fallback; direct HTTP/Chromium results are retained")
+        LOG.info("Skipping Firecrawl batch fallback (no key or no candidates); direct HTTP/Chromium results are retained")
     count["unresolved"] = len(todo) - len(done_urls)
     report = {"at":datetime.now(timezone.utc).isoformat(),"shard":args.shard,
               "shards":args.shards,"books":len(books),"missing_before":len(pending),
