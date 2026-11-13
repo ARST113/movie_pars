@@ -1,0 +1,55 @@
+name: Book24 Chitai alternative smoke test
+
+on:
+  push:
+    paths:
+      - '.github/workflows/book24-chitai-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install -r book_descriptions/requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Verify alternative Book24 cards by Chitai ID without Firecrawl credits
+        env:
+          USE_BROWSER: 'true'
+        shell: bash
+        run: |
+          PYTHONPATH=book_descriptions python -u - <<'PY'
+          from collector import BookRow
+          from batch_backfill import chitai_alternative, direct_fetch
+          samples = [
+             ('Элегия смерти', 'Хаохуэй Чжоу', 'elegiya-smerti-6757550', '2990861'),
+             ('Роза Марена', 'Стивен Кинг', 'roza-marena-6787998', '2969967'),
+             ('Каштановый человечек', 'Сорен Свейструп', 'kashtanovyy-chelovechek-6033412', '2878050'),
+             ('Zero. Обнуление', 'Энтони Маккартен', 'zero-obnulenie-6758387', '2993555'),
+          ]
+          valid = 0
+          for i, (title, author, slug, item_id) in enumerate(samples, 2):
+              row = [''] * 18
+              row[1], row[2] = title, author
+              row[8] = f'https://book24.ru/product/{slug}/'
+              row[15] = item_id
+              book = BookRow('Book24', 185838591, i, row, 16, 17)
+              alternate = chitai_alternative(book)
+              _, result = direct_fetch([book])
+              success = bool(result and len(result.description) > 80)
+              print(f'CASE {i}: {title} alternate={alternate} success={success} '
+                    f'via={result.method if result else "none"} '
+                    f'chars={len(result.description) if result else 0}', flush=True)
+              valid += success
+          print(f'SMOKE RESULT: {valid}/{len(samples)} found without paid API')
+          if not valid:
+              raise SystemExit('No product synopses could be extracted on GitHub runners')
+          PY
