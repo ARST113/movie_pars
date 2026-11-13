@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install parsing dependencies
-        run: python -m pip install 'beautifulsoup4>=4.12,<5' 'lxml>=5,<7' 'requests>=2.32,<3'
+        run: python -m pip install -r book_descriptions/requirements.txt
       - name: Diagnose already completed batches (GET only; no scraping)
         shell: bash
         run: |
