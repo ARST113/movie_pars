@@ -54,6 +54,18 @@ def normalise_text(value: str, max_chars: int = 2400) -> str:
     return value[:max_chars].rsplit(" ", 1)[0].strip() if len(value) > max_chars else value
 
 
+def strip_reader_controls(value: str) -> str:
+    """Remove preview buttons only at the start of a publisher annotation.
+
+    Labirint prefixes valid descriptions with "Полистать Содержание".
+    """
+    text = normalise_text(value)
+    return re.sub(
+        r"^(?:(?:Полистать|Содержание|Читать фрагмент|Читать отрывок)(?:\s+|$))+",
+        "", text, flags=re.I,
+    ).strip()
+
+
 def plausible(value: str) -> bool:
     value = normalise_text(value)
     low = value.lower()
@@ -119,7 +131,8 @@ def from_html(html: str) -> str | None:
     for attr, key in (("property", "og:description"), ("name", "description"), ("name", "twitter:description")):
         for node in soup.find_all("meta", attrs={attr: key}):
             candidates.append((45, node.get("content", "")))
-    candidates = [(priority, normalise_text(value)) for priority, value in candidates if plausible(value)]
+    candidates = [(priority, strip_reader_controls(value)) for priority, value in candidates
+                  if plausible(strip_reader_controls(value))]
     if not candidates:
         return None
     # A long, site-wide page dump is less trustworthy than a named description field.
@@ -137,7 +150,7 @@ def from_markdown(md: str) -> str | None:
         section = re.split(r"\n\s*(?:#{1,4}\s|\*\*[^*]+\*\*|Отзывы|Похожие книги)", remainder, maxsplit=1)[0]
         section = re.sub(r"!\[[^]]*\]\([^)]*\)", "", section)
         section = re.sub(r"\[([^]]+)\]\([^)]*\)", r"\1", section)
-        content = normalise_text(section)
+        content = strip_reader_controls(section)
         if plausible(content):
             return content
     # Some publisher pages render an underlined heading, e.g. "О книге Читать фрагмент".
@@ -147,7 +160,7 @@ def from_markdown(md: str) -> str | None:
         segment = re.split(r"(?:\n\s*\n(?:Читать полностью|Свернуть описание|Слушать аннотацию)|\n[-=]{3,})", segment, maxsplit=1)[0]
         segment = re.sub(r"!\[[^]]*\]\([^)]*\)", "", segment)
         segment = re.sub(r"\[([^]]+)\]\([^)]*\)", r"\1", segment)
-        content = normalise_text(segment)
+        content = strip_reader_controls(segment)
         if plausible(content):
             return content
     return None
