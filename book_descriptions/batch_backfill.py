@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import hashlib
+import re
 import os
 import time
 from collections import Counter, defaultdict
@@ -47,6 +49,37 @@ def groups_for(rows):
     for row in rows:
         groups[row.key or (norm(row.title), norm(row.url))].append(row)
     return list(groups.values())
+
+
+def chitai_alternative(book) -> str | None:
+    """Book24 product ID column P is often the original Chitai-gorod SKU.
+
+    Use the verified retail SKU together with the Book24 product slug to open
+    a distinct Chitai-gorod product card, without a paid search request.
+    """
+    if book.sheet_title != "Book24":
+        return None
+    product_id = get(book.data, 15).strip()
+    if not re.fullmatch(r"[0-9]{6,9}", product_id):
+        return None
+    if (urlsplit(book.url).hostname or "").removeprefix("www.") != "book24.ru":
+        return None
+    slug_match = re.fullmatch(r"/product/([a-z0-9-]+)-[0-9]+/?", urlsplit(book.url).path, re.I)
+    if not slug_match:
+        return None
+    slug = slug_match.group(1).strip("-")
+    if not slug:
+        return None
+    return f"https://www.chitai-gorod.ru/product/{slug}-{product_id}"
+
+
+def rotated_candidates(urls: list[str], shard: int, rotation: int) -> list[str]:
+    """Change candidate ordering every four-hour cycle, avoiding repeated first-page failures."""
+    if not urls:
+        return []
+    # Hash-based ordering is stable within a cycle and changes across cycles.
+    return sorted(urls, key=lambda u: hashlib.sha256(
+        f"{rotation}|{shard}|{u}".encode("utf-8")).digest())
 
 
 def batch_url_keys(urls: list[str]) -> set[str]:
@@ -191,8 +224,16 @@ def direct_fetch(group):
         worker = _DirectWorker()
         _DIRECT_LOCAL.worker = worker
     retriever = worker.retriever
+    candidates = []
     for row in sorted(group, key=preferred_order)[:2]:
-        got = retriever.get(row.url)
+        # Most remaining Book24 cards are blocked on GitHub-hosted runners.
+        # Their Book24 ID column maps to a corresponding Chitai-gorod card.
+        alternate = chitai_alternative(row)
+        if alternate:
+            candidates.append(alternate)
+        candidates.append(row.url)
+    for url in dict.fromkeys(candidates):
+        got = retriever.get(url)
         if got and plausible(got.description):
             return group, got
     return group, None
@@ -277,11 +318,12 @@ def main():
     mapping = {}
     for group in unresolved:
         selected_row = sorted(group, key=preferred_order)[0]
-        # Keep the original URL for the request: some catalogue pages carry
-        # essential product IDs in the query string. Canonical form is only
-        # the identity used to match Firecrawl's returned sourceURL.
-        mapping[canonical_url(selected_row.url)] = (group, selected_row.url)
-    todo = list(mapping)
+        # Firecrawl should attempt the alternative bookstore too: GitHub HTTP
+        # often cannot reach the Book24 product page at all.
+        candidate_url = chitai_alternative(selected_row) or selected_row.url
+        mapping[canonical_url(candidate_url)] = (group, candidate_url)
+    current_rotation = int(time.time() // (4 * 3600))
+    todo = rotated_candidates(list(mapping), args.shard, current_rotation)
     count["batch_candidates"] = len(todo)
     done_urls = set()
     chunk_size = max(1, min(500, int(os.getenv("BATCH_SIZE", "150"))))
