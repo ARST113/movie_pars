@@ -22,7 +22,7 @@ on:
 
 concurrency:
   group: book-descriptions-google-sheet
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
