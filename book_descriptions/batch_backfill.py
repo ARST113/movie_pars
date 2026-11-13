@@ -216,6 +216,24 @@ class FirecrawlBatch:
         self.session.close()
 
 
+def fetch_cloud_batch(api_key: str, urls: list[str], deadline: float) -> dict:
+    """Fetch one independent Firecrawl batch in a worker-owned HTTP session.
+
+    Polling overlaps with other batches; Google Sheets writes remain in the
+    caller's thread, so results cannot race against one another.
+    """
+    batch = FirecrawlBatch(api_key)
+    try:
+        job_id = batch.start(urls)
+        documents = []
+        state = batch.poll(job_id, documents.append, deadline)
+        failures = batch.errors(job_id) if state == "completed" else {}
+        return {"job_id": job_id, "state": state,
+                "documents": documents, "failures": failures}
+    finally:
+        batch.close()
+
+
 def firecrawl_description(doc):
     md = doc.get("metadata") or {}
     url = md.get("sourceURL") or md.get("url") or ""
@@ -327,95 +345,77 @@ def main():
                 LOG.info("Direct phase %d/%d, unresolved=%d, written=%d", n, len(grouped),len(unresolved),count["written"])
     commit(True)
 
-    # Firecrawl is the paid fallback. API calls are submitted in small
-    # sequential batches. The provider decides whether account credits suffice;
-    # there is deliberately no locally imposed credit quota or reserve.
+    # Paid fallback: independent Firecrawl batch jobs overlap instead of
+    # blocking one another for their full polling duration. Each submitted
+    # batch has its own requests.Session and only the main thread writes Sheets.
     mapping = {}
     for group in unresolved:
         selected_row = sorted(group, key=preferred_order)[0]
-        # Prefer the real, source-verified product URL. Earlier runs spent
-        # hundreds of credits on constructed Chitai-gorod alternatives and got
-        # almost no usable descriptions. Keep that alternative for free direct
-        # attempts, but NEVER make it the primary paid batch target.
+        # Submit original, verified bookstore URLs, not guessed replacements.
         candidate_url = selected_row.url
         mapping[canonical_url(candidate_url)] = (group, candidate_url)
     current_rotation = int(time.time() // (4 * 3600))
     todo = rotated_candidates(list(mapping), args.shard, current_rotation)
     count["batch_candidates"] = len(todo)
     done_urls = set()
-    chunk_size = max(1, min(500, int(os.getenv("BATCH_SIZE", "150"))))
+    chunk_size = max(1, min(500, int(os.getenv("BATCH_SIZE", "100"))))
+    cloud_workers = max(1, min(4, int(os.getenv("CLOUD_BATCH_WORKERS", "2"))))
     overall_deadline = time.monotonic() + max(300, int(os.getenv("CLOUD_BUDGET_SECONDS", "14000")))
     if cloud_key and todo:
-        batch = FirecrawlBatch(cloud_key)
-        try:
-            # Process every unresolved URL, at the provider's permitted rate.
-            # One batch per shard at a time; a 429 is retried with Retry-After.
-            batch_todo = todo
-            count["batch_candidates"] = len(batch_todo)
-            LOG.info("Firecrawl fallback: %d URLs in sequential batches of %d; credit limits are provider-managed",
-                     len(batch_todo), chunk_size)
-
-            for start in range(0, len(batch_todo), chunk_size):
-                if time.monotonic() > overall_deadline:
-                    LOG.warning("Time budget reached; remaining pages will be retried next run")
+        chunks = [todo[offset:offset + chunk_size]
+                  for offset in range(0, len(todo), chunk_size)]
+        LOG.info("Firecrawl: %d URLs in %d batches of at most %d, parallel batch jobs per shard=%d",
+                 len(todo), len(chunks), chunk_size, cloud_workers)
+        # Each concurrent batch worker starts and polls its own Firecrawl job.
+        # The executor is bounded (2 per shard by default). For 10 shards that
+        # means up to 20 cloud jobs active, not thousands of individual requests.
+        with ThreadPoolExecutor(max_workers=cloud_workers) as pool:
+            future_map = {}
+            for i, keys in enumerate(chunks, 1):
+                if time.monotonic() >= overall_deadline:
+                    LOG.warning("Cloud deadline reached before submitting remaining batches")
                     break
-                keys = batch_todo[start:start+chunk_size]
                 urls = [mapping[key][1] for key in keys]
+                future_map[pool.submit(fetch_cloud_batch, cloud_key, urls, overall_deadline)] = (i, keys)
+            for future in as_completed(future_map):
+                batch_number, keys = future_map[future]
                 try:
-                    job_id = batch.start(urls)
-                    count["firecrawl_batch_jobs"] += 1
-                    count["firecrawl_urls_submitted"] += len(urls)
+                    result = future.result()
                 except requests.HTTPError as exc:
-                    status_code = getattr(getattr(exc, "response", None), "status_code", None)
-                    if status_code is None:
-                        status_code = getattr(getattr(exc, "response", None), "status", None)
-                    if status_code == 402:
+                    status = getattr(getattr(exc, "response", None), "status_code", None)
+                    if status == 402:
                         count["firecrawl_payment_required"] += 1
-                        LOG.warning("Firecrawl returned HTTP 402; stopping paid fallback, direct results remain saved")
-                        break
-                    count["firecrawl_batch_start_errors"] += 1
-                    LOG.warning("Firecrawl batch start failed: %s", str(exc)[:180])
+                        LOG.warning("Firecrawl HTTP 402: exhausted provider quota; saved results preserved")
+                    else:
+                        count["firecrawl_batch_start_errors"] += 1
+                        LOG.warning("Firecrawl batch %d HTTP error: %s",
+                                    batch_number, str(exc)[:180])
                     continue
                 except Exception as exc:
-                    count["firecrawl_batch_start_errors"] += 1
-                    LOG.warning("Firecrawl batch start failed: %s", str(exc)[:180])
+                    count["firecrawl_batch_errors"] += 1
+                    LOG.warning("Firecrawl batch %d failed: %s",
+                                batch_number, str(exc)[:180])
                     continue
 
-                chunk_keys = set(keys)
-                def on_document(doc):
+                count["firecrawl_batch_jobs"] += 1
+                count["firecrawl_urls_submitted"] += len(keys)
+                count["firecrawl_failed_urls"] += result["failures"].get("failed", 0)
+                count["firecrawl_robots_blocked"] += result["failures"].get("robots_blocked", 0)
+                for doc in result["documents"]:
                     parsed = firecrawl_description(doc)
                     if not parsed:
                         count["firecrawl_documents_rejected"] += 1
-                        return
+                        continue
                     normalized, description, url = parsed
-                    # Compare canonical URL identities on both sides. Raw URLs
-                    # may differ by www, query parameters, or a trailing slash.
-                    if normalized not in mapping or normalized in done_urls or normalized not in chunk_keys:
-                        return
+                    if normalized not in mapping or normalized not in keys or normalized in done_urls:
+                        continue
                     if accept(mapping[normalized][0], Extraction(description, url, "firecrawl_batch")):
                         done_urls.add(normalized)
-
-                try:
-                    state = batch.poll(job_id, on_document, overall_deadline)
-                except Exception as exc:
-                    count["firecrawl_batch_poll_errors"] += 1
-                    LOG.warning("Firecrawl batch polling failed for %s: %s", job_id, str(exc)[:180])
-                    break
                 commit(True)
-                if state == "completed":
-                    failure_summary = batch.errors(job_id)
-                    count["firecrawl_failed_urls"] += failure_summary.get("failed", 0)
-                    count["firecrawl_robots_blocked"] += failure_summary.get("robots_blocked", 0)
-                LOG.info("Batch %d/%d status=%s accepted=%d total_written=%d",
-                         start//chunk_size+1, (len(batch_todo)+chunk_size-1)//chunk_size,
-                         state, len(done_urls), count["written"])
-                if state == "partial":
-                    break
-        finally:
-            batch.close()
-            commit(True)
+                LOG.info("Firecrawl concurrent batch %d/%d status=%s accepted=%d written=%d",
+                         batch_number, len(chunks), result["state"], len(done_urls), count["written"])
     else:
-        LOG.info("Skipping Firecrawl batch fallback (no key or no candidates); direct HTTP/Chromium results are retained")
+        LOG.info("No Firecrawl cloud fallback; direct/browser data retained")
     count["unresolved"] = len(todo) - len(done_urls)
     report = {"at":datetime.now(timezone.utc).isoformat(),"shard":args.shard,
               "shards":args.shards,"books":len(books),"missing_before":len(pending),
