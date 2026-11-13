@@ -22,15 +22,22 @@ on:
 
 concurrency:
   group: book-descriptions-google-sheet
-  cancel-in-progress: \${{ contains(github.event.head_commit.message, 'Emergency stop') }}
+  cancel-in-progress: ${{ contains(github.event.head_commit.message, 'Emergency stop') }}
 
 permissions:
   contents: read
 
 jobs:
+  emergency-stop:
+    if: ${{ contains(github.event.head_commit.message, 'Emergency stop') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Cancel the unintended collection run
+        run: echo "Emergency stop only. No book collection is performed."
+
   backfill:
-    if: \${{ vars.BOOK_DESCRIPTIONS_ENABLED != 'false' && !contains(github.event.head_commit.message, 'Emergency stop') }}
-    name: Books shard \${{ matrix.shard }}/10
+    if: ${{ vars.BOOK_DESCRIPTIONS_ENABLED != 'false' && !contains(github.event.head_commit.message, 'Emergency stop') }}
+    name: Books shard ${{ matrix.shard }}/10
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     strategy:
@@ -40,17 +47,17 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     env:
       SPREADSHEET_ID: '1EhKpBf0VHW_kBVMgIwZv0_cE4-jtLhm9OYZMDGUqwpw'
-      GOOGLE_SERVICE_ACCOUNT_JSON: \${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-      FIRECRAWL_API_KEY: \${{ secrets.FIRECRAWL_API_KEY }}
-      OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}
-      OPENROUTER_MODEL: \${{ vars.OPENROUTER_MODEL || 'google/gemini-2.5-flash-lite' }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'google/gemini-2.5-flash-lite' }}
       USE_BROWSER: 'true'
       WORKERS: '4'
       BATCH_SIZE: '100'
       CLOUD_BATCH_WORKERS: '2'
       CLOUD_BUDGET_SECONDS: '14800'
-      INPUT_LIMIT: \${{ inputs.limit || 1500 }}
-      INPUT_DRY_RUN: \${{ inputs.dry_run }}
+      INPUT_LIMIT: ${{ inputs.limit || 1500 }}
+      INPUT_DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -76,14 +83,14 @@ jobs:
       - name: Direct plus browser collection, then official Firecrawl Batch Scrape
         shell: bash
         run: |
-          ARGS=(--shard "\${{ matrix.shard }}" --shards 10 --limit "$INPUT_LIMIT")
+          ARGS=(--shard "${{ matrix.shard }}" --shards 10 --limit "$INPUT_LIMIT")
           if [ "$INPUT_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
-          python -u book_descriptions/batch_backfill.py "\${ARGS[@]}"
+          python -u book_descriptions/batch_backfill.py "${ARGS[@]}"
       - name: Upload batch progress report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: book-description-batch-\${{ github.run_id }}-shard-\${{ matrix.shard }}
+          name: book-description-batch-${{ github.run_id }}-shard-${{ matrix.shard }}
           path: batch-description-report-*.json
           if-no-files-found: ignore
           retention-days: 14
