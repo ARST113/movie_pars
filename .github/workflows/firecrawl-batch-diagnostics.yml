@@ -1,0 +1,82 @@
+name: Diagnose Firecrawl rejected book documents
+on:
+  push:
+    paths:
+      - '.github/workflows/firecrawl-batch-diagnostics.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install parsing dependencies
+        run: python -m pip install 'beautifulsoup4>=4.12,<5' 'lxml>=5,<7' 'requests>=2.32,<3'
+      - name: Diagnose already completed batches (GET only; no scraping)
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os,sys,re
+          from collections import Counter
+          from urllib.parse import urlsplit
+          import requests
+          sys.path.insert(0, 'book_descriptions')
+          from extraction import from_html,from_markdown,plausible,trusted_url
+          from batch_backfill import canonical_url,firecrawl_description
+          api='https://api.firecrawl.dev/v2/batch/scrape/'
+          ids=['01a1d3a2-8b27-77ed-98c7-f3acc5577d49','01a1d3a2-8b7f-7688-84e0-f3f513570c38']
+          session=requests.Session()
+          session.headers['Authorization']='Bearer '+os.environ['FIRECRAWL_API_KEY']
+          counts=Counter()
+          samples=Counter()
+          for batch_id in ids:
+              next_url=api+batch_id
+              for page_num in range(12):
+                  response=session.get(next_url,timeout=45)
+                  print('Batch',batch_id,'page',page_num,'HTTP',response.status_code)
+                  response.raise_for_status()
+                  data=response.json()
+                  if page_num==0:
+                      print('Provider:',data.get('status'),'completed',data.get('completed'),'total',data.get('total'))
+                  docs=data.get('data') or []
+                  for doc in docs:
+                      md=doc.get('metadata') or {}
+                      url=md.get('sourceURL') or md.get('url') or ''
+                      raw_html=doc.get('html') or ''
+                      markdown=doc.get('markdown') or ''
+                      code=md.get('statusCode')
+                      if not trusted_url(url):
+                          reason='missing_or_untrusted_source_url'
+                      elif code and int(code)>=400:
+                          reason='http_error'
+                      else:
+                          html_desc=from_html(raw_html)
+                          md_desc=from_markdown(markdown)
+                          if html_desc:
+                              reason='accepted_html'
+                          elif md_desc:
+                              reason='accepted_markdown'
+                          else:
+                              reason='no_valid_description'
+                      counts[reason]+=1
+                      if not reason.startswith('accepted') and samples[reason]<8:
+                          samples[reason]+=1
+                          heads=re.findall(r'(?m)^#{1,5}[^\n]{0,100}',markdown)[:7]
+                          print('REJECT',reason,'host',urlsplit(url).hostname,'path',urlsplit(url).path[:105],
+                                'keys',','.join(doc.keys()),'meta_keys',','.join(md.keys()),
+                                'status',code,'html_chars',len(raw_html),'md_chars',len(markdown),
+                                'headings',heads,'md_prefix',re.sub(r'\s+',' ',markdown[:160]))
+                  next_url=data.get('next')
+                  if not next_url:
+                      break
+                  if not next_url.startswith(api):
+                      raise RuntimeError('Unexpected pagination host')
+          print('REASON_COUNTS',dict(counts))
+          PY
