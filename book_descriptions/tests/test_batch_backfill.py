@@ -2,12 +2,12 @@
 import os
 import sys
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from batch_backfill import (FirecrawlBatch, batch_url_keys, canonical_url,
                             firecrawl_description, per_shard_credit_budget,
-                            chitai_alternative, rotated_candidates)
+                            chitai_alternative, rotated_candidates, fetch_cloud_batch)
 from collector import Sheets, BookRow
 
 
@@ -75,6 +75,32 @@ class FirecrawlBatchTests(unittest.TestCase):
                                            'next': 'https://evil.example/token'})
         with self.assertRaises(RuntimeError):
             batch.poll('123', lambda _: None, float('inf'))
+
+    def test_cloud_batch_worker_returns_docs_and_closes_session(self):
+        """Worker may run in a thread; Sheets is only used by the caller."""
+        with patch("batch_backfill.FirecrawlBatch") as factory:
+            client = factory.return_value
+            client.start.return_value = "batch-123"
+            def collect(job_id, callback, deadline):
+                self.assertEqual(job_id, "batch-123")
+                callback({"metadata": {"sourceURL": "https://book24.ru/product/item-1/"}})
+                return "completed"
+            client.poll.side_effect = collect
+            client.errors.return_value = {"failed": 1, "robots_blocked": 0}
+            result = fetch_cloud_batch("key", ["https://book24.ru/product/item-1/"], 1000.0)
+            self.assertEqual(result["state"], "completed")
+            self.assertEqual(len(result["documents"]), 1)
+            self.assertEqual(result["failures"]["failed"], 1)
+            client.close.assert_called_once()
+
+    def test_cloud_batch_closes_session_after_poll_error(self):
+        with patch("batch_backfill.FirecrawlBatch") as factory:
+            client = factory.return_value
+            client.start.return_value = "batch-xyz"
+            client.poll.side_effect = RuntimeError("temporary failure")
+            with self.assertRaises(RuntimeError):
+                fetch_cloud_batch("key", ["https://book24.ru/product/item-1/"], 1000.0)
+            client.close.assert_called_once()
 
     def test_batch_url_keys_normalize_both_sides(self):
         raw = 'https://www.labirint.ru/books/50/?utm_source=ranking'
