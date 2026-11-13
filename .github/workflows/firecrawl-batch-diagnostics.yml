@@ -69,10 +69,13 @@ jobs:
                       if not reason.startswith('accepted') and samples[reason]<8:
                           samples[reason]+=1
                           heads=re.findall(r'(?m)^#{1,5}[^\n]{0,100}',markdown)[:7]
-                          print('REJECT',reason,'host',urlsplit(url).hostname,'path',urlsplit(url).path[:105],
-                                'keys',','.join(doc.keys()),'meta_keys',','.join(md.keys()),
+                          heading=re.search(r'(?im)^#{1,4}[ ]*Аннотация[^\n]*\n',markdown)
+                          after=markdown[heading.end():heading.end()+600] if heading else ''
+                          meta_desc=md.get('description') or md.get('og:description') or ''
+                          print('REJECT',reason,'path',urlsplit(url).path[:80],
                                 'status',code,'html_chars',len(raw_html),'md_chars',len(markdown),
-                                'headings',heads,'md_prefix',re.sub(r'\s+',' ',markdown[:160]))
+                                'headings',heads,'after_annotation',re.sub(r'\s+',' ',after)[:400],
+                                'meta_description',str(meta_desc)[:350])
                   next_url=data.get('next')
                   if not next_url:
                       break
