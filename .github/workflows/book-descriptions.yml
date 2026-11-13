@@ -22,7 +22,7 @@ on:
 
 concurrency:
   group: book-descriptions-google-sheet
-  cancel-in-progress: ${{ contains(github.event.head_commit.message, 'Emergency stop') }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
