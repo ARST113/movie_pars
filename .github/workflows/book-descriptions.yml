@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "Max book rows per shard (1500 covers the entire remaining database)"
+        description: "Max book rows per shard (1500 is ample for 10 shards)"
         required: false
         type: number
         default: 1500
@@ -30,14 +30,14 @@ permissions:
 jobs:
   backfill:
     if: ${{ vars.BOOK_DESCRIPTIONS_ENABLED != 'false' }}
-    name: Books shard ${{ matrix.shard }}/4
+    name: Books shard ${{ matrix.shard }}/10
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 10
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     env:
       SPREADSHEET_ID: '1EhKpBf0VHW_kBVMgIwZv0_cE4-jtLhm9OYZMDGUqwpw'
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
@@ -47,6 +47,7 @@ jobs:
       USE_BROWSER: 'true'
       WORKERS: '4'
       BATCH_SIZE: '100'
+      CLOUD_BATCH_WORKERS: '2'
       CLOUD_BUDGET_SECONDS: '14800'
       INPUT_LIMIT: ${{ inputs.limit || 1500 }}
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
@@ -68,14 +69,14 @@ jobs:
         run: |
           test -n "$GOOGLE_SERVICE_ACCOUNT_JSON" || { echo "Missing GOOGLE_SERVICE_ACCOUNT_JSON" >&2; exit 2; }
           if [ -n "$FIRECRAWL_API_KEY" ]; then
-            echo "Firecrawl cloud fallback enabled: 100 URLs per batch, two shards concurrently, respect API 429 Retry-After."
+            echo "Firecrawl fallback enabled: 10 parallel shards, 2 concurrent batch jobs per shard, 100 URLs per job; respect HTTP 429 Retry-After."
           else
             echo "Firecrawl secret is absent; direct HTTP and Chromium collection will continue."
           fi
       - name: Direct plus browser collection, then official Firecrawl Batch Scrape
         shell: bash
         run: |
-          ARGS=(--shard "${{ matrix.shard }}" --shards 4 --limit "$INPUT_LIMIT")
+          ARGS=(--shard "${{ matrix.shard }}" --shards 10 --limit "$INPUT_LIMIT")
           if [ "$INPUT_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
           python -u book_descriptions/batch_backfill.py "${ARGS[@]}"
       - name: Upload batch progress report
