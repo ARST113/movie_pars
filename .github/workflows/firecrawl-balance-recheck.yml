@@ -1,5 +1,5 @@
 name: Firecrawl balance recheck
-# Audit balance after book description batch runs 5 and 6.
+# Audit Firecrawl credit balance while book collection runs are active.
 # Updated to verify the currently configured repository secret.
 
 on:
