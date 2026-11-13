@@ -1,4 +1,4 @@
-name: Backfill book descriptions
+name: Backfill book descriptions # refreshed Firecrawl key, resume full parallel backfill
 
 on:
   push:
