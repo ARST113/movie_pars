@@ -1,0 +1,122 @@
+{
+  "collected_at_msk": "2026-11-18T02:51:59+03:00",
+  "job_id": "e35df8822d4d4bbfa610bd9794e2d343",
+  "request": {
+    "films": [
+      {
+        "query": "Прощание",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Эй, человек!",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Матч Акпарса",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Соната",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Три добрых дела",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Сколько весит облако?",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Край вдохновения",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Авиарежим",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Историю не изменить",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Остановка",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Рыжий очкарик",
+        "id": "",
+        "name": ""
+      },
+      {
+        "query": "Снегур",
+        "id": "",
+        "name": ""
+      }
+    ],
+    "period_start": "2026-08-20",
+    "period_end": "2026-11-18",
+    "auto_period": false,
+    "filters": {
+      "regions": [],
+      "cities": [],
+      "cinema_ids": [],
+      "cinema_names": []
+    },
+    "include": [
+      "daily_schedule",
+      "daily_stats",
+      "hourly_schedule",
+      "metadata"
+    ],
+    "allow_fuzzy": false,
+    "options": {
+      "metadata": true,
+      "daily_stats": true,
+      "daily_schedule": true,
+      "hourly_schedule": true,
+      "sessions": false,
+      "daily_rospis": true,
+      "hourly_rospis": true
+    }
+  },
+  "summary": {
+    "films_requested": 12,
+    "films_matched": 10,
+    "films_exact": 10,
+    "films_fuzzy": 0,
+    "films_not_found": 2,
+    "errors": 2,
+    "cinemas": 362,
+    "cinemas_are_unique": false,
+    "halls_are_unique": false,
+    "sessions_are_individual": false,
+    "cities": 0,
+    "regions": 0,
+    "halls": 1155,
+    "sessions": 99867,
+    "tickets": 3104370.0,
+    "revenue": 1909911209.0,
+    "period_start": "2026-08-20",
+    "period_end": "2026-11-18"
+  },
+  "counts": {
+    "films": 10,
+    "metadata": 10,
+    "daily_stats": 725,
+    "daily_schedule": 725,
+    "hourly_schedule": 802,
+    "real_sessions": 0,
+    "errors": 2
+  }
+}
