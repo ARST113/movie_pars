@@ -1,7 +1,7 @@
 [
   {
     "query": "Историю не изменить",
-    "status": "film match was not accepted",
+    "status": "film not found in public catalog: Историю не изменить",
     "message": null
   },
   {
