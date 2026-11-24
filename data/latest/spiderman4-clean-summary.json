@@ -1,7 +1,7 @@
 {
-  "rows": 766,
+  "rows": 774,
   "classes": {
-    "unallocated": 766
+    "unallocated": 774
   },
   "clean_target": {
     "revenue": 0.0,
@@ -20,7 +20,7 @@
   },
   "unallocated": {
     "revenue": 0.0,
-    "sessions": 204276.0,
+    "sessions": 204742.0,
     "viewers": 0.0
   },
   "target": "Человек-паук 4",
